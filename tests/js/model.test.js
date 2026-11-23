@@ -78,8 +78,10 @@ test("parseStatus bounds sizes and counts", () => {
 test("session titles", () => {
   assert.strictEqual(M.sessionTitle("last", t), "Latest autosave")
   assert.strictEqual(M.sessionTitle("previous", t), "Before this login")
+  assert.strictEqual(M.sessionTitle("before-switch", t), "Before switch")
   assert.strictEqual(M.sessionTitle("work", t), "work")
-  assert.ok(M.isOwn("last") && M.isOwn("previous") && !M.isOwn("work"))
+  assert.ok(M.isOwn("last") && M.isOwn("previous") && M.isOwn("before-switch") && !M.isOwn("work"))
+  assert.notStrictEqual(M.glyphFor("before-switch"), M.glyphFor("previous"))
 })
 
 test("apps line", () => {
@@ -111,6 +113,7 @@ test("cleanName", () => {
   assert.strictEqual(M.cleanName("work.json"), "work")
   assert.strictEqual(M.cleanName("last"), "")
   assert.strictEqual(M.cleanName("previous"), "")
+  assert.strictEqual(M.cleanName("before switch"), "")
   assert.strictEqual(M.cleanName("   "), "")
   assert.strictEqual(M.cleanName("ñ"), "")
   assert.strictEqual(M.cleanName("a".repeat(100)).length, 64)
@@ -119,22 +122,6 @@ test("cleanName", () => {
 test("errorLine", () => {
   assert.strictEqual(M.errorLine("Traceback\nsnapback: no saved session named 'x'\n"), "no saved session named 'x'")
   assert.strictEqual(M.errorLine(""), "")
-})
-
-test("parseOthers", () => {
-  const others = M.parseOthers(JSON.stringify({ others: [{ name: "T3 Code", title: "x".repeat(500), app: "a" }, { app: "foot" }] }))
-  assert.deepStrictEqual(Array.from(others, (o) => o.name), ["T3 Code", "foot"])
-  assert.strictEqual(others[0].title.length, 120)
-  assert.strictEqual(M.parseOthers("nope"), null)
-  assert.strictEqual(M.parseOthers(JSON.stringify({ windows: [] })), null)
-  assert.strictEqual(M.parseOthers(JSON.stringify({ others: [] })).length, 0)
-})
-
-test("othersLine", () => {
-  const o = (n) => ({ name: n, title: "" })
-  assert.strictEqual(M.othersLine([o("T3 Code"), o("Chromium")], 3, t), "T3 Code, Chromium")
-  assert.strictEqual(M.othersLine([o("Chromium"), o("Foot"), o("Chromium")], 3, t), "Chromium (×2), Foot")
-  assert.strictEqual(M.othersLine([o("A"), o("B"), o("C"), o("D"), o("E")], 3, t), "A, B, C and 2 more")
 })
 
 test("every string the panel uses is in en.json", () => {

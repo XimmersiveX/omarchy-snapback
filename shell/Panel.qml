@@ -8,8 +8,8 @@ import qs.Ui
 import "Model.js" as Model
 
 // Snapback in the Omarchy bar: a switch for restoring windows at login, the
-// saved sessions (click one to put its windows back), and "save open windows
-// as". The panel only draws what `snapback status --json` says.
+// saved setups (click one to switch the desk to it), and "save open windows
+// as a setup". The panel only draws what `snapback status --json` says.
 Panel {
   id: root
   moduleName: "snapback"
@@ -70,28 +70,15 @@ Panel {
   function restore(name, closeOthers) {
     if (snap.busy) return
     snap.flash(strings.t("restore.started").arg(Model.sessionTitle(name, strings.t)))
-    switchName = ""
     root.close()
     snap.restore(name, closeOthers === true)
   }
 
-  // Clicking a session switches to it: restore it and close the windows it
-  // doesn't name, after showing which. With nothing to close it is a plain
-  // restore. The row's button puts windows back without closing anything.
-  property string switchName: ""
-  property var switchOthers: []
-  function switchTo(name) { snap.preview(name) }
-  function confirmSwitch() { if (switchName !== "") restore(switchName, true) }
-  function cancelSwitch() { switchName = "" }
-
-  Connections {
-    target: snap
-    function onPreviewReady(name, others) {
-      if (others.length === 0) { root.restore(name, false); return }
-      root.switchOthers = others
-      root.switchName = name
-    }
-  }
+  // Clicking a setup switches to it: the desk becomes the setup, and windows
+  // it doesn't have close (politely; unsaved work can still ask). Snapback
+  // keeps the desk as it was as "Before switch", so a misclick is one click
+  // to undo. The row's button puts windows back without closing anything.
+  function switchTo(name) { restore(name, true) }
 
   function save(text) {
     var name = Model.cleanName(text)
@@ -121,7 +108,6 @@ Panel {
   implicitHeight: button.implicitHeight
 
   onOpenedChanged: if (opened) {
-    switchName = ""
     cursorActive = false
     rowIndex = 0
     nowMs = Date.now()
@@ -147,18 +133,16 @@ Panel {
     function hide(): void { root.close() }
     function toggle(): void { root.toggle() }
     function refresh(): string { snap.refresh(); return "ok" }
-    // omarchy-shell snapback switchTo NAME: what clicking the session does,
-    // e.g. from a keybinding. It still asks before closing anything.
+    // omarchy-shell snapback switchTo NAME: what clicking the setup does, e.g.
+    // from a keybinding.
     function switchTo(name: string): string {
-      if (!Model.NAME_RE.test(name)) return "bad session name"
-      root.open()
+      if (!Model.NAME_RE.test(name)) return "bad setup name"
+      if (snap.busy) return "busy"
       root.switchTo(name)
       return "ok"
     }
-    function cancelSwitch(): void { root.cancelSwitch() }
     function state(): string {
-      return JSON.stringify({ opened: root.opened, switchName: root.switchName,
-                              others: root.switchOthers.length, busy: snap.busy,
+      return JSON.stringify({ opened: root.opened, busy: snap.busy, restoring: snap.restoringName,
                               status: snap.actionStatus, error: snap.actionIsError })
     }
   }
@@ -220,45 +204,19 @@ Panel {
         return null
       }
 
-      // While the switch confirmation is up, the keys answer it.
       onMoveRequested: function (dx, dy) {
-        if (switchConfirm.opened) { if (dx !== 0) switchConfirm.selectedIndex = switchConfirm.selectedIndex === 0 ? 1 : 0; return }
         if (!root.cursorActive) { root.cursorActive = true; return }
         root.moveCursor(dy)
       }
-      onActivateRequested: {
-        if (switchConfirm.opened) {
-          if (switchConfirm.selectedIndex === 0) root.cancelSwitch()
-          else root.confirmSwitch()
-        } else if (root.cursorActive) root.activate(root.currentRow)
-      }
-      onDeleteRequested: if (root.cursorActive && !switchConfirm.opened) root.deleteCurrent()
-      onCloseRequested: switchConfirm.opened ? root.cancelSwitch() : root.close()
-      onTabRequested: function (direction) {
-        if (switchConfirm.opened) switchConfirm.selectedIndex = switchConfirm.selectedIndex === 0 ? 1 : 0
-        else root.switchPanel(direction)
-      }
+      onActivateRequested: if (root.cursorActive) root.activate(root.currentRow)
+      onDeleteRequested: if (root.cursorActive) root.deleteCurrent()
+      onCloseRequested: root.close()
+      onTabRequested: function (direction) { root.switchPanel(direction) }
       onTextKey: function (t) {
-        if (switchConfirm.opened) return
         if ((t === "a" || t === "A") && root.currentRow.indexOf("session:") === 0)
           root.restore(root.currentRow.slice(8), false)
         else if (t === "r" || t === "R") snap.refresh()
         else if (t === "s" || t === "S") { root.setRowCursor("save"); saveField.forceActiveFocus() }
-      }
-
-      ConfirmDialog {
-        id: switchConfirm
-        anchors.fill: parent
-        z: 10
-        opened: root.switchName !== ""
-        onOpenedChanged: if (opened) selectedIndex = 1
-        message: root.switchName === "" ? ""
-          : strings.t("switch.confirm").arg(Model.othersLine(root.switchOthers, 3, strings.t))
-              .arg(Model.sessionTitle(root.switchName, strings.t))
-        confirmText: strings.t("switch.confirmButton")
-        fontFamily: root.fontFamily
-        onCanceled: root.cancelSwitch()
-        onConfirmed: root.confirmSwitch()
       }
 
       Flickable {

@@ -11,8 +11,8 @@
   "foreign.help": "%1 exists but wasn't written by Snapback, so it's left alone.",
   "autosave.on": "Autosaved %1",
   "autosave.off": "Autosave isn't running",
-  "sessions": "Sessions",
-  "sessions.none": "Nothing saved yet",
+  "sessions": "Setups",
+  "sessions.none": "No setups saved yet",
   "session.last": "Latest autosave",
   "session.previous": "Before this login",
   "session.windows": {
@@ -21,16 +21,16 @@
   },
   "session.meta": "%1 · %2",
   "session.unreadable": "Can't be read: %1",
-  "session.deleteHint": "Delete this session",
+  "session.deleteHint": "Delete this setup",
   "apps.more": "%1 +%2",
-  "save.placeholder": "Save open windows as…",
+  "save.placeholder": "Save open windows as a setup…",
   "save.hint": "Enter saves",
-  "save.badName": "Use letters, digits, '.', '_' or '-' (not \"last\" or \"previous\")",
+  "save.badName": "Use letters, digits, '.', '_' or '-' (not \"last\", \"previous\" or \"before-switch\")",
   "saved": "Saved \"%1\"",
   "replaced": "Replaced \"%1\"",
   "deleted": "Deleted \"%1\"",
   "restore.title.login": "Last restore, at login",
-  "restore.title.manual": "Last restore",
+  "restore.title.manual": "Last switch",
   "restore.back": {
     "one": "%1 window back",
     "other": "%1 windows back"
@@ -44,7 +44,7 @@
     "other": "%1 still out of place"
   },
   "restore.failed": "Restore failed: %1",
-  "restore.started": "Restoring \"%1\"…",
+  "restore.started": "Switching to \"%1\"…",
   "time.justNow": "just now",
   "time.minutesAgo": {
     "one": "%1 min ago",
@@ -54,14 +54,11 @@
   "time.yesterday": "yesterday %1",
   "time.onDay": "%1 %2",
   "error.generic": "Snapback didn't answer",
-  "switch.confirm": "Close %1, then put back \"%2\"? Apps with unsaved work can still ask first.",
-  "switch.confirmButton": "Switch",
-  "others.more": "%1 and %2 more",
-  "others.times": "%1 (×%2)",
   "restore.closed": {
     "one": "%1 window closed",
     "other": "%1 windows closed"
   },
   "restore.kept": "Still open: %1 (it may be asking to save)",
-  "session.addHint": "Put these windows back without closing anything (A)"
+  "session.addHint": "Put these windows back without closing anything (A)",
+  "session.beforeSwitch": "Before switch"
 }

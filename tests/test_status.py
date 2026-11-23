@@ -37,8 +37,9 @@ class Sessions(unittest.TestCase):
         self.put("previous", session("2026-11-22T10:00:00+00:00"))
         self.put("games", session("2026-11-21T10:00:00+00:00"))
         self.put("last", session("2026-11-19T10:00:00+00:00"))
+        self.put("before-switch", session("2026-11-18T10:00:00+00:00"))
         names = [s["name"] for s in status.list_sessions(ENTRIES, self.dir)]
-        self.assertEqual(names, ["last", "previous", "games", "work"])
+        self.assertEqual(names, ["last", "before-switch", "previous", "games", "work"])
 
     def test_counts_and_app_names(self):
         self.put("last", session(

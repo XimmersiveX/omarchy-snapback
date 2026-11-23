@@ -18,7 +18,7 @@ from . import session
 from .apps import DesktopEntry
 
 # The sessions Snapback keeps itself, listed first, in this order.
-OWN_SESSIONS = (session.DEFAULT_NAME, "previous")
+OWN_SESSIONS = (session.DEFAULT_NAME, session.UNDO_NAME, "previous")
 OUTCOMES = ("placed", "in-place", "failed", "skipped", "unrestorable")
 
 
@@ -121,7 +121,7 @@ def describe_session(path: Path, entries: dict[str, DesktopEntry]) -> dict:
 
 
 def list_sessions(entries: dict[str, DesktopEntry], directory: Path | None = None) -> list[dict]:
-    """Snapback's own sessions first (last, previous), then named ones, newest first."""
+    """Snapback's own sessions first (last, before-switch, previous), then named ones, newest first."""
     directory = directory or session.sessions_dir()
     try:
         paths = [p for p in directory.glob("*.json") if session.NAME_RE.match(p.stem)]

@@ -11,9 +11,12 @@ Related requests: omacom/omarchy discussions #2123 and #472, and issues #8535 an
 This folder is the plugin: `manifest.json` at the top, the panel in `shell/`, and the
 `snapback` command line beside it, which the panel runs with `python3` (no other
 dependencies). The panel has a switch to restore your windows at login (it writes
-Omarchy's post-boot hook and starts the autosave, or removes both), your saved
-sessions (click one to put its windows back), "save open windows as", and how the
-last restore went.
+Omarchy's post-boot hook and starts the autosave, or removes both) and your saved
+setups: one for coding, one for gaming, an empty one to start fresh. Click a setup
+and the desk becomes it: its apps come back on their screens and workspaces, each
+screen shows the workspace it showed, and windows the setup doesn't have close
+(politely, so unsaved work can still ask). The desk as it was is kept as "Before
+switch", so one click undoes a switch. "Save open windows as a setup" adds one.
 
 To try it from a checkout:
 
@@ -23,7 +26,8 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable io.github.ximmersivex.snapback
 ```
 
-`omarchy-shell snapback toggle` opens it from a keybinding.
+`omarchy-shell snapback toggle` opens it and `omarchy-shell snapback switchTo NAME` switches
+to a setup, e.g. from a keybinding.
 
 ## Tests
 

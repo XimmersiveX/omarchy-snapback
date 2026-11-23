@@ -22,6 +22,7 @@ from .capture import CapturedWindow, Source, capture
 
 SCHEMA = 1
 DEFAULT_NAME = "last"
+UNDO_NAME = "before-switch"  # the desk as it was before the last switch
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 

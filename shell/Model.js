@@ -6,14 +6,15 @@
 var GLYPH = {
   bar: String.fromCodePoint(0xF05B2),       // window-restore
   last: String.fromCodePoint(0xF0193),      // content-save
-  previous: String.fromCodePoint(0xF054D),  // undo-variant
+  previous: String.fromCodePoint(0xF02DA),  // history
+  undo: String.fromCodePoint(0xF054D),      // undo-variant
   named: String.fromCodePoint(0xF056E),     // view-dashboard
   remove: String.fromCodePoint(0xF01B4),    // delete
   addOnly: String.fromCodePoint(0xF0E4D),   // layers-plus: put back, close nothing
   save: String.fromCodePoint(0xF0193)
 }
 
-var OWN = ["last", "previous"]
+var OWN = ["last", "before-switch", "previous"]
 var NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 var MAX_SESSIONS = 50
 var MAX_APPS = 30
@@ -78,39 +79,17 @@ function parseRestore(r) {
   }
 }
 
-// The windows switching to a session would close, from
-// `snapback restore NAME --dry-run --json`. null when the plan can't be read.
-function parseOthers(text) {
-  var raw
-  try { raw = JSON.parse(String(text)) } catch (e) { return null }
-  if (!raw || typeof raw !== "object" || !Array.isArray(raw.others)) return null
-  return raw.others.slice(0, 100).map(function (o) {
-    return { name: str(o && (o.name || o.app), 80), title: str(o && o.title, 120) }
-  })
-}
-
-// "T3 Code, Chromium and 2 more": each app once, the first `shown` by name.
-function othersLine(others, shown, t) {
-  var names = []
-  for (var i = 0; i < others.length; i++)
-    if (names.indexOf(others[i].name) < 0) names.push(others[i].name)
-  var counts = names.map(function (n) {
-    var c = others.filter(function (o) { return o.name === n }).length
-    return c > 1 ? t("others.times").arg(n).arg(c) : n
-  })
-  if (counts.length <= shown) return counts.join(", ")
-  return t("others.more").arg(counts.slice(0, shown).join(", ")).arg(counts.length - shown)
-}
-
 function isOwn(name) { return OWN.indexOf(name) >= 0 }
 
 function glyphFor(name) {
-  return name === "last" ? GLYPH.last : name === "previous" ? GLYPH.previous : GLYPH.named
+  return name === "last" ? GLYPH.last : name === "previous" ? GLYPH.previous
+    : name === "before-switch" ? GLYPH.undo : GLYPH.named
 }
 
 function sessionTitle(name, t) {
   if (name === "last") return t("session.last")
   if (name === "previous") return t("session.previous")
+  if (name === "before-switch") return t("session.beforeSwitch")
   return name
 }
 

@@ -33,7 +33,6 @@ Item {
   property string restoringName: ""
   readonly property bool busy: restoring || restoreProcess.running
   readonly property var restoreCommand: restoreProcess.command  // what the last restore ran
-  property int previews: 0   // how many switch previews were asked for
 
   property string actionStatus: ""
   property bool actionIsError: false
@@ -92,16 +91,6 @@ Item {
     restoreProcess.command = cli(["restore", name, "--json", "--notify"]
       .concat(closeOthers === true ? ["--close-others"] : []))
     restoreProcess.running = true
-  }
-
-  // What switching to a session would close, read before asking.
-  signal previewReady(string name, var others)
-  function preview(name) {
-    if (busy || previewProcess.running || !Model.NAME_RE.test(name)) return
-    previews++
-    previewProcess.name = name
-    previewProcess.command = cli(["restore", name, "--dry-run", "--json"])
-    previewProcess.running = true
   }
 
   function save(name) {
@@ -167,18 +156,6 @@ Item {
       if (exitCode !== 0 && line !== "") root.flash(root.t("restore.failed").arg(line), true)
       root.restoringName = ""
       root.refresh()
-    }
-  }
-
-  Process {
-    id: previewProcess
-    property string name: ""
-    stdout: StdioCollector { id: previewOut; waitForEnd: true }
-    stderr: StdioCollector { id: previewErr; waitForEnd: true }
-    onExited: function (exitCode) {
-      var others = exitCode === 0 ? Model.parseOthers(previewOut.text) : null
-      if (others === null) root.flash(Model.errorLine(previewErr.text) || root.t("error.generic"), true)
-      else root.previewReady(name, others)
     }
   }
 

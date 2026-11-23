@@ -70,8 +70,7 @@ def cmd_save(args: argparse.Namespace) -> int:
     else:
         source = Source.live()
         procs = apps.read_proc
-        versions = {"hyprland": source.snapshot["version"].get("tag"),
-                    "omarchy": omarchy.installed_version(), "snapback": __version__}
+        versions = versions_of(source)
     saved = session.build(source, resolver, procs, versions)
 
     if args.json:
@@ -126,6 +125,12 @@ def cmd_restore(args: argparse.Namespace) -> int:
             show_plan(result, source, args.close_others)
         return 0
 
+    if args.close_others:
+        # Switching: keep the desk as it is now, so switching to UNDO_NAME
+        # undoes this. The session being restored was read above, so switching
+        # to UNDO_NAME itself swaps the two. An empty desk is kept too.
+        undo = session.build(source, resolver, apps.read_proc, versions_of(source))
+        session.write(undo, session.session_path(session.UNDO_NAME), force=True)
     trigger = "login" if args.at_login else "manual"
     with restore.Lock():
         log = (lambda line: None) if args.json else (lambda line: print(f"  {line}"))
@@ -248,6 +253,11 @@ def show_plan(result: plan.Plan, source: Source, close_others: bool = False) -> 
           + (f" {left} other open window(s) left alone." if left else ""))
 
 
+def versions_of(source: Source) -> dict:
+    return {"hyprland": source.snapshot["version"].get("tag"),
+            "omarchy": omarchy.installed_version(), "snapback": __version__}
+
+
 def autosaver(name: str = session.DEFAULT_NAME):
     """A save function for the watcher: True when it wrote a changed session."""
     path = session.session_path(name)
@@ -260,9 +270,7 @@ def autosaver(name: str = session.DEFAULT_NAME):
         cfg = config.load()
         resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
         source = Source.live()
-        versions = {"hyprland": source.snapshot["version"].get("tag"),
-                    "omarchy": omarchy.installed_version(), "snapback": __version__}
-        saved = session.build(source, resolver, apps.read_proc, versions)
+        saved = session.build(source, resolver, apps.read_proc, versions_of(source))
         if watch.comparable(saved) == last[0]:
             return False
         session.write(saved, path)
@@ -470,7 +478,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="seconds to wait for reopened apps' windows (default 30)")
     p.add_argument("--notify", action="store_true", help="say how it went in a desktop notification")
     p.add_argument("--close-others", action="store_true",
-                   help="switch to the session: first ask open windows it doesn't name to close "
+                   help="switch to the session: save the desk as 'before-switch' (switching to "
+                        "that undoes it), then ask open windows the session doesn't name to close "
                         "(as their close button does; unsaved work can still ask)")
     p.set_defaults(func=cmd_restore)
 

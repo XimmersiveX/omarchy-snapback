@@ -315,6 +315,7 @@ MODES = {1: "maximized", 2: "fullscreen"}  # Hyprland's names for fullscreen sta
 
 
 def _unset_fullscreen(desk: Desk, window: str, now: int) -> None:
+    # Only works with the name of the mode the window is in (checked live).
     desk.dispatch("window.fullscreen", mode=MODES.get(now, "fullscreen"), action="unset", window=window)
 
 
@@ -325,18 +326,15 @@ def _fullscreen(desk: Desk, report: Report, log) -> None:
         client = clients.get(r.address) if r.outcome in ("placed", "in-place") else None
         if client is None or r.step.waiting:
             continue
-        now, want = int(client.get("fullscreen") or 0), r.step.fullscreen
-        if now == want:
-            continue
-        window = f"address:{r.address}"
+        want = r.step.fullscreen
+        if not want or int(client.get("fullscreen") or 0) == want:
+            continue  # leaving full screen happened before the window moved
         try:
-            if now:
-                _unset_fullscreen(desk, window, now)
-            if want:
-                desk.dispatch("window.fullscreen", mode=MODES[want], action="set", window=window)
-            log(f"{MODES.get(want, 'no fullscreen')}: {r.step.app}")
+            # Setting a mode switches straight from the other one (checked live).
+            desk.dispatch("window.fullscreen", mode=MODES[want], action="set", window=f"address:{r.address}")
+            log(f"{MODES[want]}: {r.step.app}")
         except hypr.HyprError as exc:
-            report.errors.append(f"couldn't put {r.step.app} back {MODES.get(want, 'out of fullscreen')}: {exc}")
+            report.errors.append(f"couldn't put {r.step.app} back {MODES[want]}: {exc}")
 
 
 def _park(addresses: list[str], desk: Desk, report: Report) -> None:

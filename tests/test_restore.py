@@ -625,6 +625,7 @@ class Fullscreen(unittest.TestCase):
     def test_the_wrong_mode_is_swapped(self):
         _, fake, _ = self.run_with({"snapback-test-t1": 2}, {"snapback-test-t1": 1})
         self.assertEqual(self.mode(fake, "snapback-test-t1"), 2)
+        self.assertEqual([a["action"] for m, a in fake.calls if m == "window.fullscreen"], ["unset", "set"])
 
     def test_a_window_waiting_for_its_monitor_is_left_as_it_is(self):
         # T3 Code waits on DP-2 for the TV.

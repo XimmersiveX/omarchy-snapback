@@ -10,10 +10,16 @@ Order matters:
        A launched window first appears wherever Hyprland opens it and is then
        moved silently. Exec rules can't do better: they match the process
        Hyprland spawned, and uwsm-app hands the app to another process.
-    5. Put tiled windows back in their order: within each workspace, every
-       restored tiled window gets the tile nearest to where it was (as a
-       fraction of the screen), by swapping windows between tiles. That works
-       whatever shape the layout made, and only ever swaps restored windows.
+    5. Put tiled windows back in their layout. Reopened apps arrive in any
+       order, and dwindle builds its tree of splits from arrival order, so a
+       workspace can come back the wrong shape. Where it did, its restored
+       tiled windows are parked in a hidden staging workspace and brought back
+       one at a time in the saved tree's order, each time focusing the window
+       to split and preselecting the side, then resized to their saved sizes
+       (see layout.py). That needs the workspace on screen, so each monitor
+       gets its view back afterwards. A workspace holding tiled windows the
+       session doesn't know, or a shape no tree of splits makes, only has its
+       windows swapped into the tiles nearest their saved spots.
     6. Give focus back.
 
 A window always goes to its workspace first. Moving a window to a workspace
@@ -37,6 +43,7 @@ from pathlib import Path
 from typing import Protocol
 
 from . import hypr
+from . import layout
 from .geometry import Rect, contains, logical_size
 from .plan import Plan, WindowStep
 
@@ -53,6 +60,7 @@ class Desk(Protocol):
     def monitors(self) -> list[dict]: ...
     def active_window(self) -> str | None: ...
     def dispatch(self, method: str, **args: object) -> None: ...
+    def layout(self, message: str) -> None: ...
     def launch(self, command: list[str]) -> None: ...
     def focus_on_activate(self) -> bool: ...
     def set_focus_on_activate(self, on: bool, failsafe_ms: int | None = None) -> None: ...
@@ -77,6 +85,9 @@ class LiveDesk:
 
     def dispatch(self, method: str, **args: object) -> None:
         hypr.dispatch(method, **args)
+
+    def layout(self, message: str) -> None:
+        hypr.evaluate(f"hl.dispatch(hl.dsp.layout({hypr.lua(message)}))")
 
     def launch(self, command: list[str]) -> None:
         # Its own session, so the app outlives Snapback; uwsm-app moves it into
@@ -120,6 +131,7 @@ class Report:
     results: list[Result] = field(default_factory=list)
     extra: list[str] = field(default_factory=list)   # "class (address)" of unasked-for windows
     reordered: list[str] = field(default_factory=list)  # workspaces whose tiles were swapped
+    rebuilt: list[str] = field(default_factory=list)    # workspaces whose layout was rebuilt
     errors: list[str] = field(default_factory=list)  # problems outside any one window
 
     def count(self, outcome: str) -> int:
@@ -132,6 +144,7 @@ class Report:
                          "workspace": r.step.workspace} for r in self.results],
             "extra": self.extra,
             "reordered": self.reordered,
+            "rebuilt": self.rebuilt,
             "errors": self.errors,
         }
 
@@ -172,7 +185,7 @@ def run(plan: Plan, desk: Desk, timeout: float = 30.0, poll: float = 0.25,
         desk.set_focus_on_activate(False, FAILSAFE_MS)
     try:
         _restore(plan, desk, report, timeout, poll, log)
-        _order_tiles(desk, report, settle, log)
+        _arrange_tiles(desk, report, settle, log)
     finally:
         if turned_off:
             try:
@@ -243,10 +256,13 @@ def _restore(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float
             report.extra.append(f"{_class(client)} ({client['address']})")
 
 
-def _order_tiles(desk: Desk, report: Report, settle: float, log) -> None:
-    """Swap restored tiled windows so each sits in the tile nearest its saved spot."""
+STAGING = "special:snapback-staging"
+
+
+def _arrange_tiles(desk: Desk, report: Report, settle: float, log) -> None:
+    """Give each workspace's restored tiled windows their saved layout back."""
     restored = [r for r in report.results
-                if r.outcome in ("placed", "in-place") and r.address and r.step.tile]
+                if r.outcome in ("placed", "in-place") and r.address and r.step.tile_box]
     groups: dict[str, list[Result]] = {}
     for r in restored:
         groups.setdefault(r.step.workspace or "", []).append(r)
@@ -255,61 +271,157 @@ def _order_tiles(desk: Desk, report: Report, settle: float, log) -> None:
         return
     desk.sleep(settle)  # let the layout settle before reading tile positions
 
+    monitors = desk.monitors()
     boxes = {}
-    for m in desk.monitors():
+    for m in monitors:
         w, h = logical_size(m["width"], m["height"], m["scale"], m.get("transform", 0))
         boxes[m["id"]] = Rect(m["x"], m["y"], w, h)
+    by_name = {m["name"]: m["id"] for m in monitors}
+    views = {m["name"]: m["activeWorkspace"]["name"] for m in monitors}
     clients = {c["address"]: c for c in desk.clients()}
 
     for workspace, results in groups.items():
-        tiles = {}
+        now = {}
         for r in results:
             c = clients.get(r.address)
             box = boxes.get(c["monitor"]) if c else None
             if not c or not box or c.get("floating") or c["workspace"]["name"] != workspace:
                 break
-            tiles[r.address] = _tile_center(c, box, boxes.values())
+            now[r.address] = _tile_box(c, box, boxes.values())
         else:
-            swaps = _swaps([r.step.tile for r in results], [tiles[r.address] for r in results])
-            if not swaps:
+            saved = {r.address: r.step.tile_box for r in results}
+            # The right tiles, perhaps holding the wrong windows: swapping is
+            # enough (and none are needed when each is in its own tile).
+            boxes_now = [now[r.address] for r in results]
+            best = _best([r.step.tile for r in results], [_center(b) for b in boxes_now])
+            if layout.same_shape({i: r.step.tile_box for i, r in enumerate(results)},
+                                 {i: boxes_now[best[i]] for i in range(len(results))}):
+                _swap_into_place(desk, report, workspace, results, [_center(b) for b in boxes_now], log)
                 continue
+            tree = layout.split_tree(saved)
+            monitor = results[0].step.monitor
+            foreign = any(not c.get("floating") and c["workspace"]["name"] == workspace and a not in saved
+                          for a, c in clients.items())
+            if (tree is not None and not foreign and monitor in by_name and workspace.isdigit()
+                    and not any(r.step.waiting for r in results)):
+                try:
+                    box = boxes[by_name[monitor]]
+                    sizes = {a: (round((b[2] - b[0]) * box.w), round((b[3] - b[1]) * box.h))
+                             for a, b in saved.items()}
+                    _rebuild(desk, workspace, monitor, tree, sizes, settle)
+                    report.rebuilt.append(workspace)
+                    log(f"rebuilt the layout of ws {workspace}")
+                except hypr.HyprError as exc:
+                    report.errors.append(f"couldn't rebuild the layout of ws {workspace}: {exc}")
+                continue
+            _swap_into_place(desk, report, workspace, results,
+                             [_center(now[r.address]) for r in results], log)
+
+    if report.rebuilt:
+        _show_views(desk, views, report)
+
+
+def _rebuild(desk: Desk, workspace: str, monitor: str, tree: layout.Node,
+             sizes: dict[str, tuple[int, int]], settle: float) -> None:
+    """Rebuild a workspace's split tree from its windows, as layout.py explains."""
+    start, steps = layout.build_steps(tree)
+    windows = layout.leaves(tree)
+    sel = lambda address: f"address:{address}"  # noqa: E731
+    for address in windows:
+        desk.dispatch("window.move", window=sel(address), workspace=STAGING, follow=False)
+    try:
+        desk.dispatch("focus", monitor=monitor)
+        desk.dispatch("focus", workspace=workspace)
+        desk.dispatch("window.move", window=sel(start), workspace=workspace, follow=False)
+        for target, side, added in steps:
+            desk.dispatch("focus", window=sel(target))
+            desk.layout(f"preselect {side}")
+            desk.dispatch("window.move", window=sel(added), workspace=workspace, follow=False)
+        desk.sleep(settle)
+        for _ in range(2):  # a second pass settles splits the first pass moved
+            for address in windows:
+                w, h = sizes[address]
+                desk.dispatch("window.resize", window=sel(address), x=w, y=h, exact=True)
+    finally:
+        # Never leave a window parked, whatever went wrong.
+        for c in desk.clients():
+            if c["address"] in windows and c["workspace"]["name"] == STAGING:
+                try:
+                    desk.dispatch("window.move", window=sel(c["address"]), workspace=workspace, follow=False)
+                except hypr.HyprError:
+                    pass
+
+
+def _show_views(desk: Desk, views: dict[str, str], report: Report) -> None:
+    """Put each monitor back on the workspace it was showing."""
+    current = {m["name"]: m["activeWorkspace"]["name"] for m in desk.monitors()}
+    for monitor, workspace in views.items():
+        if current.get(monitor) != workspace:
             try:
-                for i, j in swaps:
-                    desk.dispatch("window.swap", window=f"address:{results[i].address}",
-                                  target=f"address:{results[j].address}")
-                report.reordered.append(workspace)
-                log(f"put the tiles of ws {workspace} back in order")
+                desk.dispatch("focus", monitor=monitor)
+                desk.dispatch("focus", workspace=workspace)
             except hypr.HyprError as exc:
-                report.errors.append(f"couldn't reorder ws {workspace}: {exc}")
+                report.errors.append(f"couldn't put {monitor} back on ws {workspace}: {exc}")
 
 
-def _tile_center(client: dict, box: Rect, boxes) -> tuple[float, float]:
-    """A tiled window's center as a fraction of the monitor it was laid out on.
+def _swap_into_place(desk: Desk, report: Report, workspace: str, results: list[Result],
+                     now: list[tuple[float, float]], log) -> None:
+    swaps = _swaps([r.step.tile for r in results], now)
+    if not swaps:
+        return
+    try:
+        for i, j in swaps:
+            desk.dispatch("window.swap", window=f"address:{results[i].address}",
+                          target=f"address:{results[j].address}")
+        report.reordered.append(workspace)
+        log(f"put the tiles of ws {workspace} back in order")
+    except hypr.HyprError as exc:
+        report.errors.append(f"couldn't reorder ws {workspace}: {exc}")
+
+
+def _tile_box(client: dict, box: Rect, boxes) -> tuple[float, float, float, float]:
+    """A tiled window's box as fractions of the monitor it was laid out on.
 
     A hidden workspace moved from another monitor keeps tile positions laid
     out there until it is shown, so those are measured on that monitor.
     """
-    cx, cy = client["at"][0] + client["size"][0] / 2, client["at"][1] + client["size"][1] / 2
-    if not contains(box, cx, cy):
-        box = next((b for b in boxes if contains(b, cx, cy)), box)
-    return (cx - box.x) / box.w, (cy - box.y) / box.h
+    x, y = client["at"]
+    w, h = client["size"]
+    if not contains(box, x + w / 2, y + h / 2):
+        box = next((b for b in boxes if contains(b, x + w / 2, y + h / 2)), box)
+    return ((x - box.x) / box.w, (y - box.y) / box.h, (x + w - box.x) / box.w, (y + h - box.y) / box.h)
 
 
-def _swaps(saved: list[tuple[float, float]], now: list[tuple[float, float]]) -> list[tuple[int, int]]:
-    """Swaps (window i, window j) that move each window to the tile nearest its
-    saved spot. `now[k]` is the tile window k is in."""
+def _center(box: tuple[float, float, float, float]) -> tuple[float, float]:
+    return (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+
+
+def _best(saved: list[tuple[float, float]], now: list[tuple[float, float]]) -> list[int]:
+    """For each window i, the tile best[i] nearest its saved spot, with no two
+    windows in one tile. `now[k]` is the tile window k is in."""
     n = len(saved)
     cost = lambda i, t: math.dist(saved[i], now[t])  # noqa: E731
     if n <= 7:
-        best = min(itertools.permutations(range(n)), key=lambda p: sum(cost(i, p[i]) for i in range(n)))
+        best = list(min(itertools.permutations(range(n)), key=lambda p: sum(cost(i, p[i]) for i in range(n))))
     else:  # greedy beyond 7! permutations
         best, free = [0] * n, set(range(n))
         for i in sorted(range(n), key=lambda i: min(cost(i, t) for t in range(n))):
             best[i] = min(free, key=lambda t: cost(i, t))
             free.remove(best[i])
-    current_total = sum(cost(i, i) for i in range(n))
-    if current_total - sum(cost(i, best[i]) for i in range(n)) < 1e-6:
-        return []
+    if sum(cost(i, i) for i in range(n)) - sum(cost(i, best[i]) for i in range(n)) < 1e-6:
+        return list(range(n))  # no better than now: leave them
+    return best
+
+
+def _swaps(saved: list[tuple[float, float]], now: list[tuple[float, float]]) -> list[tuple[int, int]]:
+    """Swaps (window i, window j) that move each window to the tile nearest its
+    saved spot. `now[k]` is the tile window k is in."""
+    return _swaps_for(_best(saved, now))
+
+
+def _swaps_for(best: list[int]) -> list[tuple[int, int]]:
+    """Swaps that put window i into tile best[i]."""
+    n = len(best)
 
     holder = list(range(n))   # holder[t] = window in tile t
     where = list(range(n))    # where[i] = tile window i is in

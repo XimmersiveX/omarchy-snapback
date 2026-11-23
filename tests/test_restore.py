@@ -7,9 +7,17 @@ from snapback import hypr, plan, restore
 from tests.test_plan import ENTRIES, desk, empty, saved_scene
 
 
+GAPS_OUT, GAPS_IN = 12, 7
+
+
 class FakeDesk:
     """Enough of Hyprland to run a restore: windows, workspaces, launches that
-    open a window a few polls later, and a clock that moves on each sleep."""
+    open a window a few polls later, a clock that moves on each sleep, and a
+    small dwindle: each workspace's tiled windows form a tree of splits, a new
+    tile splits the focused window (or the workspace's last-focused one) on
+    the preselected side, or the long side, and tiles are laid out again
+    whenever a workspace's tree changes. Workspaces nobody changes keep the
+    positions they were recorded with."""
 
     def __init__(self, source, opens=None, delay=2, fail=None, opens_on="DP-3"):
         snap = copy.deepcopy(source.snapshot)
@@ -19,6 +27,7 @@ class FakeDesk:
         self._monitors = snap["monitors"]
         self.opens_on = next(i for i, name in self.names.items() if name == opens_on)
         self.focused = next((c["address"] for c in self._clients if c.get("focusHistoryID") == 0), None)
+        self.focused_monitor = next((m["name"] for m in self._monitors if m.get("focused")), opens_on)
         self.opens = opens or {}        # command[-1] -> list of (class, title) it opens
         self.delay = delay              # polls before a launched app's windows appear
         self.fail = fail or set()       # dispatch methods that error
@@ -29,11 +38,18 @@ class FakeDesk:
         self.clock = 0.0
         self.queue = []                 # (time, client)
         self.next_id = 0xa000
+        self.preselect = None
+        self.last_focused = {}          # workspace name -> address
+        self.trees = {}                 # workspace name -> tree, built on first change
+        if self.focused:
+            self.last_focused[self._by("address:" + self.focused)["workspace"]["name"]] = self.focused
 
     # Desk interface
     def clients(self):
         while self.queue and self.queue[0][0] <= self.clock:
-            self._clients.append(self.queue.pop(0)[1])
+            client = self.queue.pop(0)[1]
+            self._clients.append(client)
+            self._insert(client)
         return copy.deepcopy(self._clients)
 
     def workspaces(self):
@@ -45,6 +61,10 @@ class FakeDesk:
     def active_window(self):
         return self.focused
 
+    def layout(self, message):
+        self.calls.append(("layout", {"message": message}))
+        self.preselect = message.split()[1]
+
     def dispatch(self, method, **args):
         self.calls.append((method, args))
         if method in self.fail:
@@ -52,35 +72,58 @@ class FakeDesk:
         if method == "window.move" and "workspace" in args:
             client = self._by(args["window"])
             name = args["workspace"]
+            self._remove(client)
             client["workspace"] = {"id": int(name) if name.isdigit() else -98, "name": name}
             if name.isdigit() and not any(w["id"] == int(name) for w in self._workspaces):
                 self._workspaces.append({"id": int(name), "name": name,
                                          "monitor": self.names[client["monitor"]], "windows": 1})
+            self._insert(client)
         elif method == "workspace.move":
             for w in self._workspaces:
                 if w["name"] == args["workspace"]:
                     w["monitor"] = args["monitor"]
         elif method == "window.float":
-            self._by(args["window"])["floating"] = args["action"] == "on"
+            client = self._by(args["window"])
+            if client["floating"] != (args["action"] == "on"):
+                (self._remove if args["action"] == "on" else lambda c: None)(client)
+                client["floating"] = args["action"] == "on"
+                if not client["floating"]:
+                    self._insert(client)
         elif method == "window.resize":
-            self._by(args["window"])["size"] = [args["x"], args["y"]]
+            client = self._by(args["window"])
+            if client["floating"]:
+                client["size"] = [args["x"], args["y"]]
         elif method == "window.move":
             self._by(args["window"])["at"] = [args["x"], args["y"]]
         elif method == "window.swap":
             a, b = self._by(args["window"]), self._by(args["target"])
             for key in ("at", "size", "workspace", "monitor"):
                 a[key], b[key] = b[key], a[key]
-        elif method == "focus":
+        elif method == "focus" and "window" in args:
             self.focused = args["window"].split(":", 1)[1]
+            client = self._by(args["window"])
+            ws = client["workspace"]["name"]
+            self.last_focused[ws] = self.focused
+            if ws.isdigit():
+                self._show(self._ws_monitor(ws), ws)
+        elif method == "focus" and "monitor" in args:
+            self.focused_monitor = args["monitor"]
+        elif method == "focus" and "workspace" in args:
+            ws = args["workspace"]
+            if not any(w["name"] == ws for w in self._workspaces):
+                self._workspaces.append({"id": int(ws), "name": ws, "monitor": self.focused_monitor, "windows": 0})
+            self._show(self._ws_monitor(ws), ws)
 
     def launch(self, command):
         self.launched.append(command)
+        monitor = next(m for m in self._monitors if m["id"] == self.opens_on)
+        ws = monitor["activeWorkspace"]
         for cls, title in self.opens.get(command[-1], []):
             self.next_id += 1
             self.queue.append((self.clock + self.delay, {
                 "address": hex(self.next_id), "class": cls, "initialClass": cls, "title": title,
                 "mapped": True, "hidden": False, "floating": False, "monitor": self.opens_on,
-                "workspace": {"id": 1, "name": "1"}, "at": [0, 0], "size": [100, 100],
+                "workspace": dict(ws), "at": [0, 0], "size": [100, 100],
                 "pid": 1, "fullscreen": 0, "pinned": False, "grouped": [], "focusHistoryID": 5}))
 
     def focus_on_activate(self):
@@ -96,9 +139,104 @@ class FakeDesk:
     def now(self):
         return self.clock
 
+    # The small dwindle
     def _by(self, selector):
         address = selector.split(":", 1)[1]
         return next(c for c in self._clients if c["address"] == address)
+
+    def _ws_monitor(self, ws):
+        return next((w["monitor"] for w in self._workspaces if w["name"] == ws), self.focused_monitor)
+
+    def _show(self, monitor, ws):
+        for m in self._monitors:
+            if m["name"] == monitor:
+                m["activeWorkspace"] = {"id": int(ws), "name": ws}
+        self.focused_monitor = monitor
+
+    def _tiles(self, ws):
+        return [c for c in self._clients if c["workspace"]["name"] == ws and not c["floating"]]
+
+    def _tree(self, ws):
+        if ws not in self.trees:
+            tree = None
+            for c in sorted(self._tiles(ws), key=lambda c: (c["at"][0], c["at"][1])):
+                tree = c["address"] if tree is None else ("r", tree, c["address"])
+            self.trees[ws] = tree
+        return self.trees[ws]
+
+    def _insert(self, client):
+        if client["floating"]:
+            return
+        ws = client["workspace"]["name"]
+        tree = self._tree(ws)
+        new = client["address"]
+        if tree is None:
+            self.trees[ws] = new
+        else:
+            leaves = _leaves(tree)
+            focused = self.focused if self.focused in leaves else None
+            target = focused or (self.last_focused.get(ws) if self.last_focused.get(ws) in leaves else leaves[0])
+            side = self.preselect or "r"
+            self.preselect = None
+            self.trees[ws] = _replace(tree, target, (side, target, new))
+        self._lay_out(ws)
+
+    def _remove(self, client):
+        ws = client["workspace"]["name"]
+        if client["floating"] or self._tree(ws) is None:
+            return
+        self.trees[ws] = _without(self.trees[ws], client["address"])
+        self._lay_out(ws)
+
+    def _lay_out(self, ws):
+        if not ws.isdigit() or self.trees.get(ws) is None:
+            return
+        m = next(m for m in self._monitors if m["name"] == self._ws_monitor(ws))
+        w, h = m["width"] / m["scale"], m["height"] / m["scale"]
+        if m.get("transform", 0) % 2:
+            w, h = h, w
+        top = m["reserved"][1]
+        _place(self.trees[ws], (m["x"] + GAPS_OUT, m["y"] + top + GAPS_OUT,
+                                w - 2 * GAPS_OUT, h - top - 2 * GAPS_OUT),
+               {c["address"]: c for c in self._clients}, m["id"])
+
+
+def _leaves(tree):
+    return _leaves(tree[1]) + _leaves(tree[2]) if isinstance(tree, tuple) else [tree]
+
+
+def _replace(tree, leaf, new):
+    if isinstance(tree, tuple):
+        return (tree[0], _replace(tree[1], leaf, new), _replace(tree[2], leaf, new))
+    return new if tree == leaf else tree
+
+
+def _without(tree, leaf):
+    if not isinstance(tree, tuple):
+        return None if tree == leaf else tree
+    a, b = _without(tree[1], leaf), _without(tree[2], leaf)
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return (tree[0], a, b)
+
+
+def _place(tree, box, clients, monitor):
+    x, y, w, h = box
+    if not isinstance(tree, tuple):
+        clients[tree]["at"], clients[tree]["size"] = [round(x), round(y)], [round(w), round(h)]
+        clients[tree]["monitor"] = monitor
+        return
+    side, a, b = tree
+    if side == "r":
+        half = (w - 2 * GAPS_IN) / 2
+        _place(a, (x, y, half, h), clients, monitor)
+        _place(b, (x + half + 2 * GAPS_IN, y, half, h), clients, monitor)
+    else:
+        half = (h - 2 * GAPS_IN) / 2
+        _place(a, (x, y, w, half), clients, monitor)
+        _place(b, (x, y + half + 2 * GAPS_IN, w, half), clients, monitor)
 
 
 def make_plan(source):
@@ -213,13 +351,13 @@ class TileOrder(unittest.TestCase):
 
 
 class Swaps(unittest.TestCase):
-    def test_tile_center_of_a_stale_window_is_measured_where_it_was_laid_out(self):
+    def test_tile_box_of_a_stale_window_is_measured_where_it_was_laid_out(self):
         from snapback.geometry import Rect
         main, portrait = Rect(3840, 750, 2560, 1440), Rect(6400, 0, 1440, 2560)
         client = {"at": [3852, 788], "size": [1261, 1390]}  # left tile of the main ROG
-        x, y = restore._tile_center(client, portrait, [main, portrait])
-        self.assertAlmostEqual(x, (3852 + 630.5 - 3840) / 2560)
-        self.assertAlmostEqual(y, (788 + 695 - 750) / 1440)
+        x0, y0, x1, y1 = restore._tile_box(client, portrait, [main, portrait])
+        self.assertAlmostEqual(x0, 12 / 2560)
+        self.assertAlmostEqual(y1, (38 + 1390) / 1440)
 
     def test_permutations(self):
         # Three tiles in a row; the windows sit in them rotated one step.

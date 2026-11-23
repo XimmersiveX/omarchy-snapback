@@ -145,6 +145,8 @@ def show_report(report: restore.Report, off: list[plan.WindowStep]) -> None:
                 "unrestorable": "!!  "}[r.outcome]
         where = f"ws {r.step.workspace}" if r.step.workspace else ""
         print(f"  {mark}  {r.step.app}  {where}" + (f"  {r.detail}" if r.detail else ""))
+    for workspace in report.rebuilt:
+        print(f"  ok    layout of ws {workspace} rebuilt as saved")
     for workspace in report.reordered:
         print(f"  ok    tiles on ws {workspace} put back in their saved order")
     for extra in report.extra:

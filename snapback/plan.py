@@ -77,6 +77,7 @@ class WindowStep:
     floating: bool = False
     geometry: Rect | None = None      # floating windows only; None = leave as is
     tile: tuple[float, float] | None = None  # tiled: saved center as a fraction of the monitor
+    tile_box: tuple[float, float, float, float] | None = None  # tiled: saved (x0, y0, x1, y1), same
     command: list[str] | None = None  # launch only
     window: str | None = None         # address of the open window it matched
     matched_by: str | None = None     # window (same window), title, or app (loose)
@@ -190,6 +191,8 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
         if not step.floating and placement:
             p = Placement.from_dict(placement)
             step.tile = ((p.dx + p.w / 2) / p.monitor_w, (p.dy + p.h / 2) / p.monitor_h)
+            step.tile_box = (p.dx / p.monitor_w, p.dy / p.monitor_h,
+                             (p.dx + p.w) / p.monitor_w, (p.dy + p.h) / p.monitor_h)
 
         if match:
             current, step.matched_by = match

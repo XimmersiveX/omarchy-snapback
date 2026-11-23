@@ -38,17 +38,17 @@ ShellRoot {
 
       console.log("rows")
       status({})
-      check("the switch, each session, the save box, then folding", barPanel.rows,
-            ["switch", "session:last", "session:previous", "session:work", "save", "fold"])
+      check("the switch, each session, then the save box", barPanel.rows,
+            ["switch", "session:last", "session:previous", "session:work", "save"])
       check("every row has an item to scroll to",
             barPanel.rows.map(function (id) { return panelContent().rowItem(id) !== null }),
-            [true, true, true, true, true, true])
+            [true, true, true, true, true])
       barPanel.cursorActive = true
       barPanel.rowIndex = 0
       barPanel.moveCursor(1)
       check("down from the switch reaches the first session", barPanel.currentRow, "session:last")
       barPanel.moveCursor(10)
-      check("the cursor stops at the last row", barPanel.currentRow, "fold")
+      check("the cursor stops at the save box", barPanel.currentRow, "save")
       barPanel.moveCursor(-10)
       check("and at the switch", barPanel.currentRow, "switch")
 
@@ -121,10 +121,7 @@ ShellRoot {
           check("it has an item", panelContent().rowItem("main") !== null, true)
           status({ screens: [{ connector: "eDP-1", identity: "Laptop", position: "only", main: true }] })
           check("no main-screen row with one screen", barPanel.rows.indexOf("main"), -1)
-          check("a folding row, last", barPanel.rows[barPanel.rows.length - 1], "fold")
-          check("folding follows Omarchy by default", service.fold, "omarchy")
-          barPanel.activate("fold")
-          check("the row switches it to Snapback's order", service.fold, "snapback")
+
           console.log(failures === 0 ? "ALL OK" : failures + " FAILED")
         })
       })

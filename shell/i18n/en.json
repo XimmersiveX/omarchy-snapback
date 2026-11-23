@@ -68,8 +68,5 @@
   "position.middle": "Middle",
   "position.right": "Right",
   "position.only": "This screen",
-  "position.n": "Screen %1",
-  "fold.title": "Fold missing screens in Snapback's order",
-  "fold.omarchy": "Off: setups use the workspaces Omarchy folded, and Omarchy takes them home when you plug back in",
-  "fold.snapback": "On: main screen's workspaces first, then left to right; click a setup to take them home"
+  "position.n": "Screen %1"
 }

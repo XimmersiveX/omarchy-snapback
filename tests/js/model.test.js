@@ -138,8 +138,6 @@ test("screens", () => {
   assert.strictEqual(M.nextMain([s.screens[0]]), null)
   assert.strictEqual(M.positionName("middle", t), "Middle")
   assert.strictEqual(M.positionName("4", t), "Screen 4")
-  assert.strictEqual(M.parseStatus(JSON.stringify({ fold: "snapback" })).fold, "snapback")
-  assert.strictEqual(M.parseStatus(JSON.stringify({ fold: "weird" })).fold, "omarchy")
 })
 
 test("every string the panel uses is in en.json", () => {

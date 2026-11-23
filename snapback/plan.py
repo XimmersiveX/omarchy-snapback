@@ -76,6 +76,7 @@ class WindowStep:
     waiting: bool = False             # owner monitor not plugged in
     floating: bool = False
     geometry: Rect | None = None      # floating windows only; None = leave as is
+    tile: tuple[float, float] | None = None  # tiled: saved center as a fraction of the monitor
     command: list[str] | None = None  # launch only
     window: str | None = None         # address of the open window it matched
     matched_by: str | None = None     # window (same window), title, or app (loose)
@@ -181,6 +182,9 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
                 step.geometry = project(Placement.from_dict(placement), screen)
         if step.floating and step.waiting:
             step.notes.append("keeps its spot until its monitor is back")
+        if not step.floating and placement:
+            p = Placement.from_dict(placement)
+            step.tile = ((p.dx + p.w / 2) / p.monitor_w, (p.dy + p.h / 2) / p.monitor_h)
 
         if match:
             current, step.matched_by = match

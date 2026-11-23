@@ -15,8 +15,9 @@ class FakeDesk:
         snap = copy.deepcopy(source.snapshot)
         self._clients = snap["clients"]
         self._workspaces = snap["workspaces"]
-        self.monitors = {m["id"]: m["name"] for m in snap["monitors"]}
-        self.opens_on = next(i for i, name in self.monitors.items() if name == opens_on)
+        self.names = {m["id"]: m["name"] for m in snap["monitors"]}
+        self._monitors = snap["monitors"]
+        self.opens_on = next(i for i, name in self.names.items() if name == opens_on)
         self.focused = next((c["address"] for c in self._clients if c.get("focusHistoryID") == 0), None)
         self.opens = opens or {}        # command[-1] -> list of (class, title) it opens
         self.delay = delay              # polls before a launched app's windows appear
@@ -38,6 +39,9 @@ class FakeDesk:
     def workspaces(self):
         return copy.deepcopy(self._workspaces)
 
+    def monitors(self):
+        return copy.deepcopy(self._monitors)
+
     def active_window(self):
         return self.focused
 
@@ -51,7 +55,7 @@ class FakeDesk:
             client["workspace"] = {"id": int(name) if name.isdigit() else -98, "name": name}
             if name.isdigit() and not any(w["id"] == int(name) for w in self._workspaces):
                 self._workspaces.append({"id": int(name), "name": name,
-                                         "monitor": self.monitors[client["monitor"]], "windows": 1})
+                                         "monitor": self.names[client["monitor"]], "windows": 1})
         elif method == "workspace.move":
             for w in self._workspaces:
                 if w["name"] == args["workspace"]:
@@ -62,6 +66,10 @@ class FakeDesk:
             self._by(args["window"])["size"] = [args["x"], args["y"]]
         elif method == "window.move":
             self._by(args["window"])["at"] = [args["x"], args["y"]]
+        elif method == "window.swap":
+            a, b = self._by(args["window"]), self._by(args["target"])
+            for key in ("at", "size", "workspace", "monitor"):
+                a[key], b[key] = b[key], a[key]
         elif method == "focus":
             self.focused = args["window"].split(":", 1)[1]
 
@@ -149,6 +157,74 @@ class Moves(unittest.TestCase):
         p = make_plan(source)
         restore.run(p, fake)
         self.assertEqual(fake.focused, p.windows[0].window)
+
+
+class TileOrder(unittest.TestCase):
+    """t1 was saved on the left of ws 22 and t2 on the right."""
+
+    def swapped(self):
+        source = desk("tv-on-scene")
+        t1, t2 = (next(c for c in source.snapshot["clients"] if c["initialClass"] == f"snapback-test-t{n}")
+                  for n in (1, 2))
+        t1["at"], t2["at"] = t2["at"], t1["at"]
+        return source, t1, t2
+
+    def test_swapped_tiles_are_swapped_back(self):
+        source, t1, t2 = self.swapped()
+        fake = FakeDesk(source)
+        report = restore.run(make_plan(source), fake)
+        self.assertEqual(report.reordered, ["22"])
+        swaps = [args for m, args in fake.calls if m == "window.swap"]
+        self.assertEqual(len(swaps), 1)
+        self.assertEqual({swaps[0]["window"], swaps[0]["target"]},
+                         {f"address:{t1['address']}", f"address:{t2['address']}"})
+        self.assertLess(fake._by(f"address:{t1['address']}")["at"][0],
+                        fake._by(f"address:{t2['address']}")["at"][0])
+
+    def test_tiles_in_order_are_left_alone(self):
+        source = desk("tv-on-scene")
+        fake = FakeDesk(source)
+        report = restore.run(make_plan(source), fake)
+        self.assertEqual(report.reordered, [])
+        self.assertFalse(any(m == "window.swap" for m, _ in fake.calls))
+
+    def test_floating_windows_are_not_tiles(self):
+        source, t1, t2 = self.swapped()
+        p = make_plan(source)
+        for step in p.windows:
+            if step.app == "snapback-test-f1":
+                self.assertIsNone(step.tile)
+
+    def test_a_refused_swap_is_reported(self):
+        source, _, _ = self.swapped()
+        report = restore.run(make_plan(source), FakeDesk(source, fail={"window.swap"}))
+        self.assertTrue(any("reorder" in e for e in report.errors))
+
+
+class Swaps(unittest.TestCase):
+    def test_permutations(self):
+        # Three tiles in a row; the windows sit in them rotated one step.
+        tiles = [(0.2, 0.5), (0.5, 0.5), (0.8, 0.5)]
+        saved = [tiles[1], tiles[2], tiles[0]]      # window i belongs in tile (i+1)%3
+        swaps = restore._swaps(saved, tiles)
+        where = [0, 1, 2]
+        for i, j in swaps:
+            where[i], where[j] = where[j], where[i]
+        self.assertEqual(where, [1, 2, 0])
+        self.assertEqual(len(swaps), 2)
+
+    def test_already_best_needs_no_swaps(self):
+        tiles = [(0.25, 0.5), (0.75, 0.5)]
+        self.assertEqual(restore._swaps(tiles, tiles), [])
+
+    def test_many_windows_use_the_greedy_path(self):
+        tiles = [(i / 10, 0.5) for i in range(9)]
+        saved = list(reversed(tiles))
+        swaps = restore._swaps(saved, tiles)
+        where = list(range(9))
+        for i, j in swaps:
+            where[i], where[j] = where[j], where[i]
+        self.assertEqual(where, list(reversed(range(9))))
 
 
 class Launches(unittest.TestCase):

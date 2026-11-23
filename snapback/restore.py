@@ -10,7 +10,11 @@ Order matters:
        A launched window first appears wherever Hyprland opens it and is then
        moved silently. Exec rules can't do better: they match the process
        Hyprland spawned, and uwsm-app hands the app to another process.
-    5. Give focus back.
+    5. Put tiled windows back in their order: within each workspace, every
+       restored tiled window gets the tile nearest to where it was (as a
+       fraction of the screen), by swapping windows between tiles. That works
+       whatever shape the layout made, and only ever swaps restored windows.
+    6. Give focus back.
 
 A window always goes to its workspace first. Moving a window to a workspace
 that doesn't exist yet makes that workspace on the window's monitor, so it is
@@ -23,6 +27,8 @@ Snapback never closes or kills a window. Extra windows an app opens by itself
 from __future__ import annotations
 
 import fcntl
+import itertools
+import math
 import os
 import subprocess
 import time
@@ -31,6 +37,7 @@ from pathlib import Path
 from typing import Protocol
 
 from . import hypr
+from .geometry import logical_size
 from .plan import Plan, WindowStep
 
 FAILSAFE_MS = 120_000
@@ -43,6 +50,7 @@ class RestoreError(RuntimeError):
 class Desk(Protocol):
     def clients(self) -> list[dict]: ...
     def workspaces(self) -> list[dict]: ...
+    def monitors(self) -> list[dict]: ...
     def active_window(self) -> str | None: ...
     def dispatch(self, method: str, **args: object) -> None: ...
     def launch(self, command: list[str]) -> None: ...
@@ -60,6 +68,9 @@ class LiveDesk:
 
     def workspaces(self) -> list[dict]:
         return hypr.query("workspaces")
+
+    def monitors(self) -> list[dict]:
+        return hypr.query("monitors")
 
     def active_window(self) -> str | None:
         return (hypr.query("activewindow") or {}).get("address")
@@ -108,6 +119,7 @@ class Result:
 class Report:
     results: list[Result] = field(default_factory=list)
     extra: list[str] = field(default_factory=list)   # "class (address)" of unasked-for windows
+    reordered: list[str] = field(default_factory=list)  # workspaces whose tiles were swapped
     errors: list[str] = field(default_factory=list)  # problems outside any one window
 
     def count(self, outcome: str) -> int:
@@ -119,6 +131,7 @@ class Report:
                          "outcome": r.outcome, "window": r.address, "detail": r.detail,
                          "workspace": r.step.workspace} for r in self.results],
             "extra": self.extra,
+            "reordered": self.reordered,
             "errors": self.errors,
         }
 
@@ -151,7 +164,7 @@ class Lock:
 
 
 def run(plan: Plan, desk: Desk, timeout: float = 30.0, poll: float = 0.25,
-        log=lambda line: None) -> Report:
+        log=lambda line: None, settle: float = 0.3) -> Report:
     report = Report()
     focused = desk.active_window()
     turned_off = desk.focus_on_activate()
@@ -159,6 +172,7 @@ def run(plan: Plan, desk: Desk, timeout: float = 30.0, poll: float = 0.25,
         desk.set_focus_on_activate(False, FAILSAFE_MS)
     try:
         _restore(plan, desk, report, timeout, poll, log)
+        _order_tiles(desk, report, settle, log)
     finally:
         if turned_off:
             try:
@@ -225,6 +239,78 @@ def _restore(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float
     for client in desk.clients():
         if client["address"] not in before and client["address"] not in claimed and _class(client) in wanted:
             report.extra.append(f"{_class(client)} ({client['address']})")
+
+
+def _order_tiles(desk: Desk, report: Report, settle: float, log) -> None:
+    """Swap restored tiled windows so each sits in the tile nearest its saved spot."""
+    restored = [r for r in report.results
+                if r.outcome in ("placed", "in-place") and r.address and r.step.tile]
+    groups: dict[str, list[Result]] = {}
+    for r in restored:
+        groups.setdefault(r.step.workspace or "", []).append(r)
+    groups = {ws: rs for ws, rs in groups.items() if len(rs) > 1}
+    if not groups:
+        return
+    desk.sleep(settle)  # let the layout settle before reading tile positions
+
+    boxes = {}
+    for m in desk.monitors():
+        w, h = logical_size(m["width"], m["height"], m["scale"], m.get("transform", 0))
+        boxes[m["id"]] = (m["x"], m["y"], w, h)
+    clients = {c["address"]: c for c in desk.clients()}
+
+    for workspace, results in groups.items():
+        tiles = {}
+        for r in results:
+            c = clients.get(r.address)
+            box = boxes.get(c["monitor"]) if c else None
+            if not c or not box or c.get("floating") or c["workspace"]["name"] != workspace:
+                break
+            x, y, w, h = box
+            tiles[r.address] = ((c["at"][0] - x + c["size"][0] / 2) / w,
+                                (c["at"][1] - y + c["size"][1] / 2) / h)
+        else:
+            swaps = _swaps([r.step.tile for r in results], [tiles[r.address] for r in results])
+            if not swaps:
+                continue
+            try:
+                for i, j in swaps:
+                    desk.dispatch("window.swap", window=f"address:{results[i].address}",
+                                  target=f"address:{results[j].address}")
+                report.reordered.append(workspace)
+                log(f"put the tiles of ws {workspace} back in order")
+            except hypr.HyprError as exc:
+                report.errors.append(f"couldn't reorder ws {workspace}: {exc}")
+
+
+def _swaps(saved: list[tuple[float, float]], now: list[tuple[float, float]]) -> list[tuple[int, int]]:
+    """Swaps (window i, window j) that move each window to the tile nearest its
+    saved spot. `now[k]` is the tile window k is in."""
+    n = len(saved)
+    cost = lambda i, t: math.dist(saved[i], now[t])  # noqa: E731
+    if n <= 7:
+        best = min(itertools.permutations(range(n)), key=lambda p: sum(cost(i, p[i]) for i in range(n)))
+    else:  # greedy beyond 7! permutations
+        best, free = [0] * n, set(range(n))
+        for i in sorted(range(n), key=lambda i: min(cost(i, t) for t in range(n))):
+            best[i] = min(free, key=lambda t: cost(i, t))
+            free.remove(best[i])
+    current_total = sum(cost(i, i) for i in range(n))
+    if current_total - sum(cost(i, best[i]) for i in range(n)) < 1e-6:
+        return []
+
+    holder = list(range(n))   # holder[t] = window in tile t
+    where = list(range(n))    # where[i] = tile window i is in
+    swaps = []
+    for i in range(n):
+        target = best[i]
+        if where[i] == target:
+            continue
+        other = holder[target]
+        swaps.append((i, other))
+        holder[where[i]], holder[target] = other, i
+        where[other], where[i] = where[i], target
+    return swaps
 
 
 def _place(desk: Desk, step: WindowStep, address: str, log) -> Result:

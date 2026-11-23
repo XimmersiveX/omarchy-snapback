@@ -3,6 +3,9 @@
     python -m snapback inspect [--json] [--from DIR]
     python -m snapback save [NAME] [--dry-run] [--json] [--force]
     python -m snapback restore [NAME] [--dry-run] [--json] [--at-login] [--file PATH] [--from DIR] [--timeout S]
+    python -m snapback watch [--verbose]
+    python -m snapback login
+    python -m snapback setup [--remove]
     python -m snapback doctor
 """
 
@@ -10,10 +13,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import subprocess
 import sys
+import time
 from pathlib import Path
 
-from . import __version__, apps, config, hypr, omarchy, plan, restore, session
+from . import __version__, apps, config, hypr, omarchy, plan, restore, session, setup, watch
 from .capture import Source, capture
 
 TESTED_HYPRLAND = ("v0.56",)
@@ -214,6 +220,114 @@ def show_plan(result: plan.Plan, source: Source) -> None:
           + (f" {result.untouched} other open window(s) left alone." if result.untouched else ""))
 
 
+def autosaver(name: str = session.DEFAULT_NAME):
+    """A save function for the watcher: True when it wrote a changed session."""
+    path = session.session_path(name)
+    try:
+        last = [watch.comparable(session.read(path))]
+    except session.SessionError:
+        last = [None]
+
+    def save() -> bool:
+        cfg = config.load()
+        resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
+        source = Source.live()
+        versions = {"hyprland": source.snapshot["version"].get("tag"),
+                    "omarchy": omarchy.installed_version(), "snapback": __version__}
+        saved = session.build(source, resolver, apps.read_proc, versions)
+        if watch.comparable(saved) == last[0]:
+            return False
+        session.write(saved, path)
+        last[0] = watch.comparable(saved)
+        return True
+
+    return save
+
+
+def may_save() -> str | None:
+    if watch.restore_running():
+        return "a restore is running"
+    return watch.shutdown_in_progress()
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    log = (lambda line: print(f"snapback: {line}", flush=True)) if args.verbose else (lambda line: None)
+    with watch.WatchLock():
+        sock = watch.event_socket()
+        watch.Watcher(autosaver(), may_save, log=log).run(watch.events_from(sock))
+    return 0
+
+
+def notify(title: str, body: str, urgent: bool = False) -> None:
+    try:
+        subprocess.run(["notify-send", "-a", "Snapback", *(["-u", "critical"] if urgent else []),
+                        title, body], timeout=5, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def cmd_login(args: argparse.Namespace) -> int:
+    """After login: put the last session back, then keep it saved."""
+    time.sleep(args.settle)  # let autostarted apps and late monitors turn up
+    path = session.session_path(session.DEFAULT_NAME)
+    if path.exists():
+        # The session as it was when the desk went down, kept apart from the
+        # autosave, so a restore that goes wrong can't lose it.
+        backup = session.session_path("previous")
+        shutil.copy2(path, backup)
+        backup.chmod(0o600)
+        try:
+            saved = session.read(path)
+            cfg = config.load()
+            resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
+            terminal = apps.default_terminal()
+            result = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal,
+                                name="last", loose=True)
+            with restore.Lock():
+                report = restore.run(result, restore.LiveDesk(), timeout=args.timeout)
+            print(json.dumps(report.to_dict()), flush=True)
+            notify(*login_summary(report))
+        except (session.SessionError, restore.RestoreError, hypr.HyprError, config.ConfigError) as exc:
+            print(f"snapback: restore failed: {exc}", file=sys.stderr, flush=True)
+            notify("Snapback couldn't restore your windows",
+                   f"{exc}\nYour session is kept as 'previous'.", urgent=True)
+    return cmd_watch(args)
+
+
+def login_summary(report: restore.Report) -> tuple[str, str]:
+    back = report.count("placed") + report.count("in-place")
+    failed = [r.step.app for r in report.results if r.outcome in ("failed", "unrestorable")]
+    title = f"Snapback restored {back} window{'s' if back != 1 else ''}"
+    if not failed:
+        return title, "Everything is back where it was."
+    names = ", ".join(sorted(set(failed))[:3]) + ("..." if len(set(failed)) > 3 else "")
+    return title, f"{len(failed)} couldn't be restored: {names}"
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    try:
+        if args.remove:
+            removed = setup.remove()
+            if setup.unit_running():
+                setup.stop()
+            print(f"Removed {setup.hook_path()}." if removed else "Snapback wasn't set up.")
+            print("Saved sessions are kept in " + str(session.sessions_dir()) + ".")
+            return 0
+        path = setup.install()
+    except FileExistsError as exc:
+        print(f"snapback: {exc}", file=sys.stderr)
+        return 1
+    print(f"Wrote {path}: after each login Snapback puts your windows back, then keeps them saved.")
+    if args.no_start:
+        return 0
+    if setup.unit_running():
+        print("Snapback is already watching this session.")
+    else:
+        setup.start("watch")
+        print("Started watching this session (systemd user unit 'snapback').")
+    return 0
+
+
 def cmd_doctor(_: argparse.Namespace) -> int:
     problems = 0
     try:
@@ -270,6 +384,23 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--timeout", type=float, default=30.0, metavar="S",
                    help="seconds to wait for reopened apps' windows (default 30)")
     p.set_defaults(func=cmd_restore)
+
+    p = sub.add_parser("watch", help="keep the 'last' session saved as windows change")
+    p.add_argument("--verbose", action="store_true", help="say what it does")
+    p.set_defaults(func=cmd_watch)
+
+    p = sub.add_parser("login", help="restore the last session, then watch (run by the login hook)")
+    p.add_argument("--settle", type=float, default=3.0, metavar="S",
+                   help="seconds to wait before restoring (default 3)")
+    p.add_argument("--timeout", type=float, default=45.0, metavar="S",
+                   help="seconds to wait for reopened apps' windows (default 45)")
+    p.add_argument("--verbose", action="store_true", default=True, help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_login)
+
+    p = sub.add_parser("setup", help="restore at login and keep the session saved")
+    p.add_argument("--remove", action="store_true", help="undo it (saved sessions are kept)")
+    p.add_argument("--no-start", action="store_true", help="don't start watching this session now")
+    p.set_defaults(func=cmd_setup)
 
     p = sub.add_parser("doctor", help="check this system is one Snapback understands")
     p.set_defaults(func=cmd_doctor)

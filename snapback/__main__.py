@@ -2,7 +2,8 @@
 
     python -m snapback inspect [--json] [--from DIR]
     python -m snapback save [NAME] [--dry-run] [--json] [--force]
-    python -m snapback restore [NAME] [--dry-run] [--json] [--at-login] [--file PATH] [--from DIR] [--timeout S]
+    python -m snapback restore [NAME] [--dry-run] [--json] [--at-login] [--notify] [--file PATH] [--from DIR] [--timeout S]
+    python -m snapback delete NAME
     python -m snapback watch [--verbose]
     python -m snapback login
     python -m snapback setup [--remove]
@@ -143,6 +144,8 @@ def cmd_restore(args: argparse.Namespace) -> int:
         print(json.dumps({**report.to_dict(), "check": [w.to_dict() for w in off]}, indent=2))
     else:
         show_report(report, off)
+    if args.notify:
+        notify(*restore_summary(report, len(off)))
     return 1 if report.count("failed") or report.errors or off else 0
 
 
@@ -297,7 +300,7 @@ def cmd_login(args: argparse.Namespace) -> int:
                 report = restore.run(result, restore.LiveDesk(), timeout=args.timeout)
             print(json.dumps(report.to_dict()), flush=True)
             status.record_restore(status.restore_record("last", "login", report.to_dict()))
-            notify(*login_summary(report))
+            notify(*restore_summary(report))
         except (session.SessionError, restore.RestoreError, hypr.HyprError, config.ConfigError) as exc:
             print(f"snapback: restore failed: {exc}", file=sys.stderr, flush=True)
             status.record_restore(status.restore_record("last", "login", error=str(exc)))
@@ -306,14 +309,28 @@ def cmd_login(args: argparse.Namespace) -> int:
     return cmd_watch(args)
 
 
-def login_summary(report: restore.Report) -> tuple[str, str]:
+def restore_summary(report: restore.Report, misplaced: int = 0) -> tuple[str, str]:
     back = report.count("placed") + report.count("in-place")
     failed = [r.step.app for r in report.results if r.outcome in ("failed", "unrestorable")]
     title = f"Snapback restored {back} window{'s' if back != 1 else ''}"
-    if not failed:
-        return title, "Everything is back where it was."
-    names = ", ".join(sorted(set(failed))[:3]) + ("..." if len(set(failed)) > 3 else "")
-    return title, f"{len(failed)} couldn't be restored: {names}"
+    if failed:
+        names = ", ".join(sorted(set(failed))[:3]) + ("..." if len(set(failed)) > 3 else "")
+        return title, f"{len(failed)} couldn't be restored: {names}"
+    if misplaced:
+        return title, f"{misplaced} still out of place; restore again to finish."
+    return title, "Everything is back where it was."
+
+
+
+def cmd_delete(args: argparse.Namespace) -> int:
+    path = session.session_path(args.name)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        print(f"snapback: no saved session named {args.name!r}", file=sys.stderr)
+        return 1
+    print(f"Deleted {path}.")
+    return 0
 
 
 def cmd_setup(args: argparse.Namespace) -> int:
@@ -343,6 +360,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
 def current_status() -> dict:
     return status.snapshot(
         hook=status.hook_state(setup.hook_path(), setup.MARKER),
+        hook_path=setup.hook_path(),
         watching=setup.unit_running(),
         restoring=watch.restore_running(),
         version=__version__,
@@ -436,7 +454,12 @@ def main(argv: list[str] | None = None) -> int:
                         "login, when open windows are ones apps reopened themselves)")
     p.add_argument("--timeout", type=float, default=30.0, metavar="S",
                    help="seconds to wait for reopened apps' windows (default 30)")
+    p.add_argument("--notify", action="store_true", help="say how it went in a desktop notification")
     p.set_defaults(func=cmd_restore)
+
+    p = sub.add_parser("delete", help="delete a saved session")
+    p.add_argument("name")
+    p.set_defaults(func=cmd_delete)
 
     p = sub.add_parser("watch", help="keep the 'last' session saved as windows change")
     p.add_argument("--verbose", action="store_true", help="say what it does")

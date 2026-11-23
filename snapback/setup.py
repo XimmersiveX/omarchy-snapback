@@ -35,6 +35,7 @@ def unit_command(command: str, root: Path | None = None) -> list[str]:
     return ["systemd-run", "--user", f"--unit={UNIT}", "--collect", "--quiet",
             "--property=Type=exec", "--setenv=PATH", "--setenv=HYPRLAND_INSTANCE_SIGNATURE",
             "--setenv=XDG_RUNTIME_DIR", f"--setenv=PYTHONPATH={root}",
+            "--setenv=PYTHONDONTWRITEBYTECODE=1",  # the plugin reloads when its files change
             "python3", "-m", "snapback", command, "--verbose"]
 
 

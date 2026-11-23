@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.ximmersivex.snapback",
+  "name": "Snapback",
+  "version": "0.1.0",
+  "author": "XimmersiveX",
+  "description": "Puts your windows back after a reboot: every app on the screen, workspace and tile it was on. Saved sessions and restore at login from the Omarchy bar.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "shell/Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Snapback",
+    "description": "Restore your windows at login, and save or restore sessions of open windows.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

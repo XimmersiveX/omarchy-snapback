@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from snapback import restore, session, setup, watch
-from snapback.__main__ import login_summary
+from snapback.__main__ import restore_summary
 from snapback.plan import WindowStep
 
 
@@ -195,13 +195,19 @@ class LoginSummary(unittest.TestCase):
         return report
 
     def test_all_back(self):
-        self.assertEqual(login_summary(self.report("placed", "in-place")),
+        self.assertEqual(restore_summary(self.report("placed", "in-place")),
                          ("Snapback restored 2 windows", "Everything is back where it was."))
 
     def test_names_what_failed(self):
-        title, body = login_summary(self.report("placed", "failed", "unrestorable"))
+        title, body = restore_summary(self.report("placed", "failed", "unrestorable"))
         self.assertEqual(title, "Snapback restored 1 window")
         self.assertEqual(body, "2 couldn't be restored: app1, app2")
+
+    def test_says_when_windows_are_still_out_of_place(self):
+        title, body = restore_summary(self.report("placed"), misplaced=2)
+        self.assertEqual(body, "2 still out of place; restore again to finish.")
+        _, body = restore_summary(self.report("placed", "failed"), misplaced=2)
+        self.assertIn("couldn't be restored", body)  # failures say more than misplacement
 
 
 if __name__ == "__main__":

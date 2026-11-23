@@ -143,12 +143,13 @@ def hook_state(path: Path, marker: str) -> str:
     return "on" if marker in text else "foreign"
 
 
-def snapshot(*, hook: str, watching: bool, restoring: bool, version: str,
+def snapshot(*, hook: str, hook_path: Path, watching: bool, restoring: bool, version: str,
              entries: dict[str, DesktopEntry], directory: Path | None = None,
              report: Path | None = None) -> dict:
     return {
         "version": version,
         "atLogin": hook,
+        "hookPath": str(hook_path),
         "watching": watching,
         "restoring": restoring,
         "sessions": list_sessions(entries, directory),

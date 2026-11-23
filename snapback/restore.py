@@ -4,7 +4,9 @@ Order matters:
     0. Only when switching to a session (`close_others`): ask the open windows
        the session doesn't name to close, the way their own close button
        does, so an app with unsaved work can still ask about it. A window that
-       stays open is reported, never killed.
+       stays open is reported, never killed. Pinned windows, and the other
+       windows of an app with one pinned (a call behind its picture-in-picture),
+       stay open and are reported.
     1. Turn off misc:focus_on_activate, so reopened apps don't yank focus
        around. It is turned back on in a `finally`, and a timer inside
        Hyprland turns it back on anyway if Snapback dies before that.
@@ -154,6 +156,7 @@ class Report:
     errors: list[str] = field(default_factory=list)  # problems outside any one window
     closed: list[str] = field(default_factory=list)  # names of windows closed (switching)
     kept: list[str] = field(default_factory=list)    # asked to close, still open
+    pinned: list[str] = field(default_factory=list)  # not closed: pinned, or that app has a pinned window
 
     def count(self, outcome: str) -> int:
         return sum(1 for r in self.results if r.outcome == outcome)
@@ -169,6 +172,7 @@ class Report:
             "errors": self.errors,
             "closed": self.closed,
             "kept": self.kept,
+            "pinned": self.pinned,
         }
 
 
@@ -203,6 +207,8 @@ def run(plan: Plan, desk: Desk, timeout: float = 30.0, poll: float = 0.25,
         log=lambda line: None, settle: float = 0.3, close_others: bool = False,
         close_wait: float = 5.0) -> Report:
     report = Report()
+    if close_others:
+        report.pinned = [p["name"] for p in plan.pinned]
     if close_others and plan.others:
         _close_others(plan, desk, report, close_wait, poll, log)
     focused = desk.active_window()

@@ -403,6 +403,36 @@ class SwitchingAndViews(unittest.TestCase):
         t3 = next(o for o in result.others if o["app"] == "com.t3tools.T3Code")
         self.assertEqual(t3["name"], "t3code.desktop")  # the entry's name (ENTRIES names = ids)
 
+    def test_a_pinned_window_and_its_apps_other_windows_stay_open(self):
+        # A call's picture-in-picture is pinned; the browser window holding the
+        # call isn't, and nothing links them.
+        session = dict(saved_scene(), windows=[])
+        source = desk("tv-on-scene")
+        pip = next(c for c in source.snapshot["clients"] if c["initialClass"] == "snapback-test-f2")
+        pip["pinned"] = True
+        call = copy.deepcopy(pip)
+        call.update(address="0xcall", pinned=False, floating=False, workspace={"id": 1, "name": "1"})
+        source.snapshot["clients"].append(call)
+        result, _ = make(session, source)
+        self.assertEqual({o["address"] for o in result.pinned}, {pip["address"], "0xcall"})
+        closing = {o["address"] for o in result.others}
+        self.assertFalse(closing & {pip["address"], "0xcall"})
+        self.assertIn(next(c["address"] for c in source.snapshot["clients"]
+                           if c["initialClass"] == "chromium"), closing)
+
+    def test_without_a_pin_an_apps_windows_close_as_before(self):
+        result, _ = make(dict(saved_scene(), windows=[]), desk("tv-on-scene"))
+        self.assertEqual(result.pinned, [])
+
+    def test_a_pinned_window_is_never_taken_for_a_saved_one(self):
+        source = desk("tv-on-scene")
+        for c in source.snapshot["clients"]:
+            if c["initialClass"] == "snapback-test-f2":
+                c["pinned"] = True
+        result, w = make(saved_scene(), source)
+        self.assertEqual(w["snapback-test-f2"].window, None)
+        self.assertEqual([o["app"] for o in result.pinned], ["snapback-test-f2"])
+
     def test_nothing_to_close_when_everything_is_in_the_session(self):
         result, _ = make(saved_scene(), desk("tv-on-scene"))
         self.assertEqual(result.others, [])

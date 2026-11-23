@@ -30,6 +30,11 @@ One process can own several windows (Chromium), so the process is never used.
 Windows the session doesn't name are left alone, or listed in `others` for a
 restore that closes them ("switch to" a session).
 
+Pinned windows are left alone: never matched, moved or closed. While an app
+has a pinned window, its other windows aren't closed either (`pinned` lists
+them): a video call's picture-in-picture is pinned, the browser window
+holding the call isn't, and nothing links the two.
+
 Each screen goes back to the workspace it was showing when the session was
 saved (`views`), where the session recorded it and the screen is plugged in.
 
@@ -111,6 +116,8 @@ class Plan:
     untouched: int                    # open windows the session doesn't know
     others: list[dict] = field(default_factory=list)  # those on regular workspaces: what
                                                       # switching to the session closes
+    pinned: list[dict] = field(default_factory=list)  # left open by a switch: pinned, or an
+                                                      # app with a pinned window
     views: dict[str, str] = field(default_factory=dict)  # connector -> workspace it showed
     screens: list[dict] = field(default_factory=list)  # how each saved screen lands today
     elsewhere: bool = False           # the setup's main screen isn't here: screens matched by role
@@ -128,6 +135,7 @@ class Plan:
             "missing_monitors": self.missing_monitors,
             "untouched": self.untouched,
             "others": self.others,
+            "pinned": self.pinned,
             "views": self.views,
             "screens": self.screens,
             "elsewhere": self.elsewhere,
@@ -196,7 +204,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
     mapping = map_screens(session, monitors, set(marks), omarchy_folded, in_use)
     targets = [_target(saved, state, by_identity, host, existing, mapping, follow)
                for saved in session["windows"]]
-    matches = _match(session["windows"], open_windows, same_instance,
+    matches = _match(session["windows"], [w for w in open_windows if not w.pinned], same_instance,
                      [t[0] if t else None for t in targets])
 
     workspace_steps: dict[int, WorkspaceStep] = {}
@@ -285,12 +293,16 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
             step.command = desktop_command(entry.id)
 
     taken = {s.window for s in steps if s.window}
-    others = [{"address": w.address, "app": w.app, "name": app_name(w.app, entries), "title": w.title,
-               "workspace": w.workspace}
-              for w in sorted(open_windows, key=lambda w: (w.focus < 0, w.focus))
-              if w.address not in taken and not w.workspace.startswith("special:")]
+    pinned_apps = {w.app for w in open_windows if w.pinned}
+    others, pinned = [], []
+    for w in sorted(open_windows, key=lambda w: (w.focus < 0, w.focus)):
+        if w.address in taken or w.workspace.startswith("special:"):
+            continue
+        (pinned if w.app in pinned_apps else others).append(
+            {"address": w.address, "app": w.app, "name": app_name(w.app, entries), "title": w.title,
+             "workspace": w.workspace})
     return Plan(name, session.get("saved_at"), sorted(workspace_steps.values(), key=lambda w: w.workspace),
-                steps, missing, len(open_windows) - len(taken), others,
+                steps, missing, len(open_windows) - len(taken), others, pinned,
                 _views(session, state, by_identity, mapping), _screens(session, mapping, by_identity),
                 mapping.elsewhere, mapping.elsewhere and not follow)
 

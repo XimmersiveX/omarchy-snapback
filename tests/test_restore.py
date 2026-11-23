@@ -701,6 +701,17 @@ class SwitchTo(unittest.TestCase):
         self.assertFalse(any(c[0] == "window.close" for c in self.fake.calls))
         self.assertEqual((report.closed, report.kept), ([], []))
 
+    def test_pinned_windows_are_not_closed_and_are_reported(self):
+        pinned = self.plan.others.pop(0)
+        self.plan.pinned.append(pinned)
+        report = restore.run(self.plan, self.fake, close_others=True)
+        self.assertIn(pinned["address"], {c["address"] for c in self.fake.clients()})
+        self.assertNotIn(("window.close", f"address:{pinned['address']}"),
+                         [(c[0], c[1].get("window")) for c in self.fake.calls])
+        self.assertEqual(report.pinned, [pinned["name"]])
+        self.assertEqual(report.to_dict()["pinned"], [pinned["name"]])
+        self.assertEqual(restore.run(self.plan, FakeDesk(self.source)).pinned, [])
+
     def test_a_refused_close_is_an_error_not_a_crash(self):
         self.fake.fail.add("window.close")
         report = restore.run(self.plan, self.fake, close_others=True)

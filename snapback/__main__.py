@@ -163,6 +163,8 @@ def show_report(report: restore.Report, off: list[plan.WindowStep]) -> None:
         print(f"  ok    closed {name}")
     for name in report.kept:
         print(f"  note  {name} is still open (it may be asking to save something)")
+    for name in report.pinned:
+        print(f"  note  {name} left open: it, or another window of it, is pinned")
     for r in report.results:
         mark = {"placed": "ok  ", "in-place": "ok  ", "failed": "FAIL", "skipped": "skip",
                 "unrestorable": "!!  "}[r.outcome]
@@ -240,6 +242,11 @@ def show_plan(result: plan.Plan, source: Source, close_others: bool = False) -> 
         print(f"Close first ({len(result.others)})")
         for other in result.others:
             print(f"  close {other['name']}  on ws {other['workspace']}  ({other['title'][:60]})")
+    if close_others and result.pinned:
+        print()
+        print(f"Left open: pinned, or the app has a pinned window ({len(result.pinned)})")
+        for other in result.pinned:
+            print(f"  keep  {other['name']}  on ws {other['workspace']}  ({other['title'][:60]})")
     moved = [m for m in result.screens if m["how"] != "same"]
     if moved:
         print()

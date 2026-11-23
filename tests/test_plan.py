@@ -466,3 +466,67 @@ class SwitchingAndViews(unittest.TestCase):
         self.assertEqual(plan.app_name("com.t3tools.T3Code", entries), "T3 Code")
         self.assertEqual(plan.app_name("foot", entries), "Foot")
         self.assertEqual(plan.app_name("weird", entries), "weird")
+
+
+CHROMIUM = "0x55a4304d59d0"  # the open Chromium window in tv-on-scene
+DASH = ["https://dashboard.lan/d/tv", "https://github.com/repos"]
+
+
+def with_tabs(urls=DASH, profile="Default"):
+    session = saved_scene()
+    session["windows"] = [w for w in session["windows"] if w["app"] == "chromium"]
+    session["windows"][0]["tabs"] = {"profile": profile, "urls": list(urls)}
+    return session
+
+
+class BrowserTabs(unittest.TestCase):
+    def test_an_open_window_with_other_tabs_is_not_taken_for_it(self):
+        result, w = make(with_tabs(), desk("tv-on-scene"), tabs={CHROMIUM: {"profile": "Default", "urls": []}})
+        step = w["chromium"]
+        self.assertEqual(step.action, "launch")
+        self.assertEqual(step.command, ["uwsm-app", "--", "x", "--new-window", "--", *DASH])
+        self.assertEqual(step.tabs, DASH)
+        self.assertIn(CHROMIUM, {o["address"] for o in result.others})  # a switch closes it
+
+    def test_the_window_holding_the_tabs_is_kept(self):
+        tabs = {CHROMIUM: {"profile": "Default", "urls": ["https://github.com/x", "https://dashboard.lan/d/other"]}}
+        result, w = make(with_tabs(), desk("tv-on-scene"), tabs=tabs)
+        self.assertEqual((w["chromium"].action, w["chromium"].window), ("in-place", CHROMIUM))
+        self.assertEqual(result.others and [o for o in result.others if o["address"] == CHROMIUM], [])
+
+    def test_tabs_beat_the_title(self):
+        source = desk("tv-on-scene", instance="another")
+        copy_ = copy.deepcopy(next(c for c in source.snapshot["clients"] if c["address"] == CHROMIUM))
+        copy_.update(address="0xdash", title="Grafana - Chromium", stableId="ffff", focusHistoryID=8)
+        source.snapshot["clients"].append(copy_)
+        tabs = {CHROMIUM: {"profile": "Default", "urls": ["https://news.example/"]},
+                "0xdash": {"profile": "Default", "urls": DASH}}
+        _, w = make(with_tabs(), source, tabs=tabs)
+        self.assertEqual((w["chromium"].window, w["chromium"].matched_by), ("0xdash", "tabs"))
+
+    def test_unknown_tabs_reuse_an_open_window_as_before(self):
+        _, w = make(with_tabs(), desk("tv-on-scene", instance="another"))
+        self.assertEqual((w["chromium"].window, w["chromium"].matched_by), (CHROMIUM, "title"))
+
+    def test_a_closed_browser_that_restores_itself_is_started_plainly(self):
+        asked = []
+        cold = lambda app, profile: asked.append((app, profile)) or True  # noqa: E731
+        _, w = make(with_tabs(profile="Profile 1"), empty(desk("tv-on-scene")), cold=cold)
+        self.assertEqual(w["chromium"].command, ["uwsm-app", "--", "chromium.desktop"])
+        self.assertIsNone(w["chromium"].tabs)
+        self.assertEqual(asked, [("chromium", "Profile 1")])
+        self.assertTrue(any("its own tabs" in n for n in w["chromium"].notes))
+
+    def test_saved_urls_are_checked_again_before_opening(self):
+        _, w = make(with_tabs(["--evil", "chrome://newtab/"]), empty(desk("tv-on-scene")))
+        self.assertEqual(w["chromium"].command, ["uwsm-app", "--", "chromium.desktop"])
+
+    def test_saving_keeps_tabs_only_for_windows_that_have_some(self):
+        source = desk("tv-on-scene")
+        procs = lambda pid: ProcInfo()  # noqa: E731
+        tabs = lambda clients: {CHROMIUM: {"profile": "Default", "urls": DASH},  # noqa: E731
+                                "0x55a430c6c450": {"profile": "Default", "urls": []}}
+        saved = build(source, Resolver(ENTRIES, MAPPING), procs, {}, tabs=tabs)
+        by_app = {w["app"]: w for w in saved["windows"]}
+        self.assertEqual(by_app["chromium"]["tabs"], {"profile": "Default", "urls": DASH})
+        self.assertIsNone(by_app["com.t3tools.T3Code"]["tabs"])

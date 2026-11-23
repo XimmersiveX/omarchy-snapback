@@ -30,6 +30,11 @@ One process can own several windows (Chromium), so the process is never used.
 Windows the session doesn't name are left alone, or listed in `others` for a
 restore that closes them ("switch to" a session).
 
+A browser window whose tabs were saved is its tabs: an open window of the
+browser is only taken for it when the open window's tabs are known and hold
+every saved tab's site. Otherwise a window is opened with the saved tabs (see
+browsers.py). Where the tabs aren't known on either side, as before.
+
 Pinned windows are left alone: never matched, moved or closed. While an app
 has a pinned window, its other windows aren't closed either (`pinned` lists
 them): a video call's picture-in-picture is pinned, the browser window
@@ -48,6 +53,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Callable
 
+from . import browsers
 from .apps import TUI_ID, DesktopEntry, exec_args
 from .capture import CapturedWindow, Source, capture
 from .geometry import Monitor, Placement, Rect, project
@@ -94,6 +100,7 @@ class WindowStep:
     tile: tuple[float, float] | None = None  # tiled: saved center as a fraction of the monitor
     tile_box: tuple[float, float, float, float] | None = None  # tiled: saved (x0, y0, x1, y1), same
     command: list[str] | None = None  # launch only
+    tabs: list[str] | None = None     # launch only: the browser window opens with these tabs
     window: str | None = None         # address of the open window it matched
     matched_by: str | None = None     # window (same window), title, or app (any of its windows)
     now: str | None = None            # workspace that window is on now
@@ -172,12 +179,16 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
           default_terminal: str | None = None,
           is_dir: Callable[[str], bool] = os.path.isdir,
           name: str = "", marks: set[str] | frozenset = frozenset(),
-          fold: str = FOLD_OMARCHY) -> Plan:
+          fold: str = FOLD_OMARCHY, tabs: dict[str, dict] | None = None,
+          cold: Callable[[str, str], bool] = lambda app, profile: False) -> Plan:
     """The plan for restoring `session` onto the desktop in `source`.
 
     `entries` are the apps installed now, `never` is the never-restore check
     from the user's config as it is now, and `default_terminal` is the entry
-    xdg-terminal-exec opens.
+    xdg-terminal-exec opens. `tabs` are the open browser windows' tabs
+    (browsers.open_tabs), and `cold(app, profile)` says whether opening a
+    window of that browser now would bring back its own last session instead
+    (browsers.cold_restore).
     """
     monitors = source.monitors()
     by_identity = {m.identity: m for m in monitors}
@@ -204,8 +215,9 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
     mapping = map_screens(session, monitors, set(marks), omarchy_folded, in_use)
     targets = [_target(saved, state, by_identity, host, existing, mapping, follow)
                for saved in session["windows"]]
+    tabs = tabs or {}
     matches = _match(session["windows"], [w for w in open_windows if not w.pinned], same_instance,
-                     [t[0] if t else None for t in targets])
+                     [t[0] if t else None for t in targets], tabs)
 
     workspace_steps: dict[int, WorkspaceStep] = {}
     missing: list[str] = []
@@ -291,6 +303,17 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
                                   f"not {launch['entry']}")
         else:
             step.command = desktop_command(entry.id)
+            saved_tabs = saved.get("tabs") or {}
+            urls = [u for u in saved_tabs.get("urls") or [] if browsers.usable(u)]
+            profile = str(saved_tabs.get("profile") or "Default")
+            if urls and cold(saved["app"], profile):
+                step.notes.append("the browser isn't open and continues where it left off, "
+                                  "so it brings back its own tabs")
+            elif urls:
+                command = browsers.new_window(exec_args(entry.exec), profile, urls)
+                if command:
+                    step.command, step.tabs = command, urls
+                    step.notes.append(f"opens with its {len(urls)} tab" + ("s" if len(urls) > 1 else ""))
 
     taken = {s.window for s in steps if s.window}
     pinned_apps = {w.app for w in open_windows if w.pinned}
@@ -424,9 +447,21 @@ def _target(saved: dict, state, by_identity: dict[str, Monitor], host: Monitor |
 
 
 def _match(saved: list[dict], open_windows: list[CapturedWindow], same_instance: bool,
-           targets: list[str | None]) -> dict[int, tuple[CapturedWindow, str]]:
+           targets: list[str | None], tabs: dict[str, dict] | None = None
+           ) -> dict[int, tuple[CapturedWindow, str]]:
     """Saved window index -> (the open window that is it, what matched).
-    `targets[i]` is the workspace saved window i goes to."""
+    `targets[i]` is the workspace saved window i goes to; `tabs` the open
+    browser windows' tabs by address."""
+    tabs = tabs or {}
+
+    def saved_urls(s: dict) -> list[str]:
+        return (s.get("tabs") or {}).get("urls") or []
+
+    def may_be(w: CapturedWindow, s: dict) -> bool:
+        # A browser window with known tabs is only the saved one if it holds its tabs.
+        have = tabs.get(w.address)
+        return not saved_urls(s) or have is None or browsers.holds(have.get("urls") or [], saved_urls(s))
+
     pool: dict[str, list[CapturedWindow]] = {}
     for window in sorted(open_windows, key=lambda w: (w.focus < 0, w.focus)):
         pool.setdefault(window.app, []).append(window)
@@ -434,6 +469,7 @@ def _match(saved: list[dict], open_windows: list[CapturedWindow], same_instance:
     tests = []
     if same_instance:
         tests.append(("window", lambda w, s: bool(w.stable_id) and w.stable_id == s.get("stable_id")))
+    tests.append(("tabs", lambda w, s: bool(saved_urls(s)) and w.address in tabs))
     tests.append(("title", lambda w, s: w.title == s.get("title")))
     tests.append(("app", lambda w, s: True))
 
@@ -447,7 +483,7 @@ def _match(saved: list[dict], open_windows: list[CapturedWindow], same_instance:
             if how == "app":  # one already where it goes moves nothing
                 ordered = sorted(candidates, key=lambda w: w.workspace != targets[index])
             for window in ordered:
-                if test(window, s):
+                if may_be(window, s) and test(window, s):
                     result[index] = (window, how)
                     candidates.remove(window)
                     break

@@ -805,3 +805,50 @@ class LuaQuoting(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BrowserTabs(unittest.TestCase):
+    def two_windows(self):
+        session = saved_scene()
+        first = next(w for w in session["windows"] if w["app"] == "chromium")
+        second = copy.deepcopy(first)
+        second["slot"] = 2
+        first["tabs"] = {"profile": "Default", "urls": ["https://a.example/"]}
+        second["tabs"] = {"profile": "Default", "urls": ["https://b.example/"]}
+        session["windows"] = [first, second]
+        return session
+
+    def test_tab_windows_open_one_at_a_time_each_caught_by_its_own_launch(self):
+        source = empty(desk("tv-on-scene"))
+        p = plan.build(self.two_windows(), source, ENTRIES)
+        fake = FakeDesk(source, {"https://a.example/": [("chromium", "A")],
+                                 "https://b.example/": [("chromium", "B")]})
+        times = []
+        launch = fake.launch
+        fake.launch = lambda command: (times.append(fake.clock), launch(command))
+        report = restore.run(p, fake, timeout=10)
+        self.assertEqual(len(times), 2)
+        self.assertGreater(times[1], times[0])
+        titles = {c["address"]: c["title"] for c in fake._clients}
+        got = {r.step.tabs[0]: titles[r.address] for r in report.results}
+        self.assertEqual(got, {"https://a.example/": "A", "https://b.example/": "B"})
+        self.assertEqual({r.outcome for r in report.results}, {"placed"})
+
+    def test_a_switch_closes_the_browsers_other_windows_after_the_new_ones_open(self):
+        source = desk("tv-on-scene")
+        session = saved_scene()
+        session["windows"] = [w for w in session["windows"] if w["app"] == "chromium"]
+        session["windows"][0]["tabs"] = {"profile": "Default", "urls": ["https://a.example/"]}
+        old = "0x55a4304d59d0"
+        p = plan.build(session, source, ENTRIES, tabs={old: {"profile": "Default", "urls": []}})
+        fake = FakeDesk(source, {"https://a.example/": [("chromium", "A")]})
+        launch = fake.launch
+        fake.launch = lambda command: (fake.calls.append(("launch", {})), launch(command))
+        report = restore.run(p, fake, timeout=10, close_others=True)
+        order = [(m, a.get("window")) for m, a in fake.calls if m in ("launch", "window.close")]
+        launched = order.index(("launch", None))
+        self.assertGreater(order.index(("window.close", f"address:{old}")), launched)
+        self.assertTrue(all(i < launched for i, (m, _) in enumerate(order)
+                            if m == "window.close" and _ != f"address:{old}"))
+        self.assertEqual(len(report.closed), len(p.others))
+        self.assertNotIn(old, {c["address"] for c in fake.clients()})

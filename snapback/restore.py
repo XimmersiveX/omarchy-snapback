@@ -6,7 +6,10 @@ Order matters:
        does, so an app with unsaved work can still ask about it. A window that
        stays open is reported, never killed. Pinned windows, and the other
        windows of an app with one pinned (a call behind its picture-in-picture),
-       stay open and are reported.
+       stay open and are reported. A browser's windows are asked only after
+       step 4 has opened the browser windows with saved tabs: closing them all
+       first could make the browser quit, and a browser started again brings
+       back its own last session.
     1. Turn off misc:focus_on_activate, so reopened apps don't yank focus
        around. It is turned back on in a `finally`, and a timer inside
        Hyprland turns it back on anyway if Snapback dies before that.
@@ -22,6 +25,8 @@ Order matters:
        A launched window first appears wherever Hyprland opens it and is then
        moved silently. Exec rules can't do better: they match the process
        Hyprland spawned, and uwsm-app hands the app to another process.
+       Browser windows with saved tabs are opened one at a time, each caught
+       before the next, as their titles can't tell them apart.
     5. Put tiled windows back in their layout. Reopened apps arrive in any
        order, and dwindle builds its tree of splits from arrival order, so a
        workspace can come back the wrong shape. Where it did, its restored
@@ -209,14 +214,18 @@ def run(plan: Plan, desk: Desk, timeout: float = 30.0, poll: float = 0.25,
     report = Report()
     if close_others:
         report.pinned = [p["name"] for p in plan.pinned]
-    if close_others and plan.others:
-        _close_others(plan, desk, report, close_wait, poll, log)
+    tabbed = {s.app for s in plan.windows if s.action == "launch" and s.tabs}
+    later = [o for o in plan.others if o["app"] in tabbed] if close_others else []
+    if close_others:
+        _close_others([o for o in plan.others if o["app"] not in tabbed], desk, report, close_wait, poll, log)
     focused = desk.active_window()
     turned_off = desk.focus_on_activate()
     if turned_off:
         desk.set_focus_on_activate(False, FAILSAFE_MS)
     try:
         _restore(plan, desk, report, timeout, poll, log)
+        if later:
+            _close_others(later, desk, report, close_wait, poll, log)
         _arrange_tiles(desk, report, settle, log)
         if plan.views:
             _show_views(desk, plan.views, report)
@@ -231,11 +240,13 @@ def run(plan: Plan, desk: Desk, timeout: float = 30.0, poll: float = 0.25,
     return report
 
 
-def _close_others(plan: Plan, desk: Desk, report: Report, wait: float, poll: float, log) -> None:
-    """Ask each window the session doesn't name to close, and wait a moment
-    for them to go."""
+def _close_others(others: list[dict], desk: Desk, report: Report, wait: float, poll: float, log) -> None:
+    """Ask each of these windows the session doesn't name to close, and wait
+    a moment for them to go."""
+    if not others:
+        return
     asked = {}
-    for other in plan.others:
+    for other in others:
         try:
             desk.dispatch("window.close", window=f"address:{other['address']}")
             asked[other["address"]] = other["name"]
@@ -249,8 +260,8 @@ def _close_others(plan: Plan, desk: Desk, report: Report, wait: float, poll: flo
         if not left or desk.now() >= deadline:
             break
         desk.sleep(poll)
-    report.closed = [name for a, name in asked.items() if a not in left]
-    report.kept = [asked[a] for a in left]
+    report.closed += [name for a, name in asked.items() if a not in left]
+    report.kept += [asked[a] for a in left]
 
 
 def _restore(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float, log) -> None:
@@ -277,9 +288,17 @@ def _restore(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float
             report.results.append(Result(step, "unrestorable", detail=step.reason))
         else:
             report.results.append(Result(step, "skipped", detail=step.reason))
+    if launches:
+        _launch([s for s in launches if not s.tabs], desk, report, timeout, poll, log)
+        for step in launches:
+            if step.tabs:
+                _launch([step], desk, report, timeout, poll, log)
+
+
+def _launch(launches: list[WindowStep], desk: Desk, report: Report, timeout: float, poll: float, log) -> None:
+    """Launch these, catch each new window by its app class, and place it."""
     if not launches:
         return
-
     before = {c["address"] for c in desk.clients()}
     for step in launches:
         try:

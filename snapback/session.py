@@ -48,6 +48,7 @@ class SavedWindow:
     launch: dict | None
     skip: str | None
     problem: str | None
+    tabs: dict | None = None   # a browser window's {"profile", "urls"}
 
     def to_dict(self) -> dict:
         w = self.window
@@ -68,15 +69,19 @@ class SavedWindow:
             "launch": self.launch,
             "skip": self.skip,
             "problem": self.problem,
+            "tabs": self.tabs,
         }
 
 
 def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
           versions: dict | None = None, now: datetime | None = None,
-          marks: set[str] | frozenset = frozenset()) -> dict:
+          marks: set[str] | frozenset = frozenset(),
+          tabs: Callable[[list[dict]], dict[str, dict]] = lambda clients: {}) -> dict:
     """The session for a snapshot. `procs` looks up a window's process (live
-    /proc, or a stand-in in tests)."""
+    /proc, or a stand-in in tests); `tabs` reads browser windows' tabs
+    (browsers.open_tabs, or a stand-in)."""
     saved = []
+    browser_tabs = tabs(source.snapshot["clients"])
     for window in capture(source):
         result = resolver.resolve(window.app, procs(window.pid))
         saved.append(SavedWindow(
@@ -84,6 +89,7 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
             result.launch.to_dict() if result.launch else None,
             result.skip,
             result.problem,
+            browser_tabs.get(window.address) if (browser_tabs.get(window.address) or {}).get("urls") else None,
         ))
     saved.sort(key=lambda s: (s.window.focus < 0, s.window.focus))
 

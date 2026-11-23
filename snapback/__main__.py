@@ -22,7 +22,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, apps, config, hypr, omarchy, plan, restore, screens, session, setup, status, watch
+from . import __version__, apps, browsers, config, hypr, omarchy, plan, restore, screens, session, setup, status, watch
 from .capture import Source, capture
 
 TESTED_HYPRLAND = ("v0.56",)
@@ -72,7 +72,8 @@ def cmd_save(args: argparse.Namespace) -> int:
         source = Source.live()
         procs = apps.read_proc
         versions = versions_of(source)
-    saved = session.build(source, resolver, procs, versions, marks=screens.load_marks())
+    saved = session.build(source, resolver, procs, versions, marks=screens.load_marks(),
+                          tabs=(lambda clients: {}) if args.source else browsers.open_tabs)
 
     if args.json:
         print(json.dumps(saved, indent=2))
@@ -118,8 +119,10 @@ def cmd_restore(args: argparse.Namespace) -> int:
     source = Source.from_dir(Path(args.source)) if args.source else Source.live()
     terminal = apps.default_terminal()
     marks, fold = screens.load_marks(), screens.load_fold()
+    live = {} if args.source else {"tabs": browsers.open_tabs(source.snapshot["clients"]),
+                                   "cold": browsers.cold_restore}
     result = plan.build(saved, source, resolver.entries, resolver.is_never, terminal,
-                        name=path.stem, marks=marks, fold=fold)
+                        name=path.stem, marks=marks, fold=fold, **live)
     if args.dry_run:
         if args.json:
             print(json.dumps(result.to_dict(), indent=2))
@@ -131,7 +134,8 @@ def cmd_restore(args: argparse.Namespace) -> int:
         # Switching: keep the desk as it is now, so switching to UNDO_NAME
         # undoes this. The session being restored was read above, so switching
         # to UNDO_NAME itself swaps the two. An empty desk is kept too.
-        undo = session.build(source, resolver, apps.read_proc, versions_of(source), marks=marks)
+        undo = session.build(source, resolver, apps.read_proc, versions_of(source), marks=marks,
+                             tabs=browsers.open_tabs)
         session.write(undo, session.session_path(session.UNDO_NAME), force=True)
     trigger = "login" if args.at_login else "manual"
     with restore.Lock():
@@ -143,8 +147,9 @@ def cmd_restore(args: argparse.Namespace) -> int:
             status.record_restore(status.restore_record(path.stem, trigger, error=str(exc)))
             raise
     # Check: planned again now, everything should already be in place.
-    after = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal,
-                       marks=marks, fold=fold)
+    now = Source.live()
+    after = plan.build(saved, now, resolver.entries, resolver.is_never, terminal,
+                       marks=marks, fold=fold, tabs=browsers.open_tabs(now.snapshot["clients"]))
     off = [w for w in after.windows if w.action not in ("in-place", "skip", "problem")]
     status.record_restore(status.restore_record(
         path.stem, trigger, report.to_dict(), check=[w.to_dict() for w in off]))
@@ -226,7 +231,8 @@ def show_plan(result: plan.Plan, source: Source, close_others: bool = False) -> 
             print(f"  open  {w.app}  -> {where}")
             print(f"            $ {' '.join(w.command)}")
         elif w.action == "move":
-            by = {"title": " (same title)", "app": " (another window of this app)"}.get(w.matched_by, "")
+            by = {"title": " (same title)", "tabs": " (same tabs)",
+                  "app": " (another window of this app)"}.get(w.matched_by, "")
             print(f"  move  {w.app}  ws {w.now} -> {where}{by}")
         elif w.action == "in-place":
             print(f"  ok    {w.app}  already on {where}")
@@ -294,7 +300,7 @@ def autosaver(name: str = session.DEFAULT_NAME):
         resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
         source = Source.live()
         saved = session.build(source, resolver, apps.read_proc, versions_of(source),
-                              marks=screens.load_marks())
+                              marks=screens.load_marks(), tabs=browsers.open_tabs)
         if watch.comparable(saved) == last[0]:
             return False
         session.write(saved, path)
@@ -341,8 +347,11 @@ def cmd_login(args: argparse.Namespace) -> int:
             cfg = config.load()
             resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
             terminal = apps.default_terminal()
-            result = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal,
-                                name="last", marks=screens.load_marks(), fold=screens.load_fold())
+            source = Source.live()
+            result = plan.build(saved, source, resolver.entries, resolver.is_never, terminal,
+                                name="last", marks=screens.load_marks(), fold=screens.load_fold(),
+                                tabs=browsers.open_tabs(source.snapshot["clients"]),
+                                cold=browsers.cold_restore)
             with restore.Lock():
                 report = restore.run(result, restore.LiveDesk(), timeout=args.timeout)
             print(json.dumps(report.to_dict()), flush=True)

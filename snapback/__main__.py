@@ -2,7 +2,7 @@
 
     python -m snapback inspect [--json] [--from DIR]
     python -m snapback save [NAME] [--dry-run] [--json] [--force]
-    python -m snapback restore [NAME] --dry-run [--json] [--file PATH] [--from DIR]
+    python -m snapback restore [NAME] [--dry-run] [--json] [--file PATH] [--from DIR] [--timeout S]
     python -m snapback doctor
 """
 
@@ -13,7 +13,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, apps, config, hypr, omarchy, plan, session
+from . import __version__, apps, config, hypr, omarchy, plan, restore, session
 from .capture import Source, capture
 
 TESTED_HYPRLAND = ("v0.56",)
@@ -71,7 +71,8 @@ def cmd_save(args: argparse.Namespace) -> int:
     else:
         show_session(saved)
     if args.dry_run:
-        print(f"Dry run: nothing written (would save to {path}).")
+        print(f"Dry run: nothing written (would save to {path}).",
+              file=sys.stderr if args.json else sys.stdout)
         return 0
     session.write(saved, path, force=args.force)
     reopen = session.restorable(saved)
@@ -99,22 +100,56 @@ def show_session(saved: dict) -> None:
 
 
 def cmd_restore(args: argparse.Namespace) -> int:
-    if not args.dry_run:
-        print("snapback: restoring for real isn't built yet; add --dry-run to see the plan",
-              file=sys.stderr)
+    if not args.dry_run and args.source:
+        print("snapback: --from only works with --dry-run", file=sys.stderr)
         return 2
     path = Path(args.file) if args.file else session.session_path(args.name)
     saved = session.read(path)
     cfg = config.load()
     resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
     source = Source.from_dir(Path(args.source)) if args.source else Source.live()
-    result = plan.build(saved, source, resolver.entries, resolver.is_never,
-                        apps.default_terminal(), name=path.stem)
+    terminal = apps.default_terminal()
+    result = plan.build(saved, source, resolver.entries, resolver.is_never, terminal, name=path.stem)
+    if args.dry_run:
+        if args.json:
+            print(json.dumps(result.to_dict(), indent=2))
+        else:
+            show_plan(result, source)
+        return 0
+
+    with restore.Lock():
+        log = (lambda line: None) if args.json else (lambda line: print(f"  {line}"))
+        report = restore.run(result, restore.LiveDesk(), timeout=args.timeout, log=log)
+    # Check: planned again now, everything should already be in place.
+    after = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal)
+    off = [w for w in after.windows if w.action not in ("in-place", "skip", "problem")]
     if args.json:
-        print(json.dumps(result.to_dict(), indent=2))
+        print(json.dumps({**report.to_dict(), "check": [w.to_dict() for w in off]}, indent=2))
     else:
-        show_plan(result, source)
-    return 0
+        show_report(report, off)
+    return 1 if report.count("failed") or report.errors or off else 0
+
+
+def show_report(report: restore.Report, off: list[plan.WindowStep]) -> None:
+    print()
+    for r in report.results:
+        mark = {"placed": "ok  ", "in-place": "ok  ", "failed": "FAIL", "skipped": "skip"}[r.outcome]
+        where = f"ws {r.step.workspace}" if r.step.workspace else ""
+        print(f"  {mark}  {r.step.app}  {where}" + (f"  {r.detail}" if r.detail else ""))
+    for extra in report.extra:
+        print(f"  note  an extra window opened and was left alone: {extra}")
+    for error in report.errors:
+        print(f"  FAIL  {error}")
+    print()
+    print(f"Restored: {report.count('placed')} placed, {report.count('in-place')} already in place"
+          + (f", {report.count('failed')} failed" if report.count('failed') else "")
+          + (f", {report.count('skipped')} not restored" if report.count('skipped') else "") + ".")
+    if off:
+        print("Check: these aren't where they belong yet:")
+        for w in off:
+            print(f"  {w.app}  {w.action}: on ws {w.now}, should be on ws {w.workspace}")
+    else:
+        print("Check: every restored window is where it belongs.")
 
 
 def show_plan(result: plan.Plan, source: Source) -> None:
@@ -214,13 +249,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--from", dest="source", metavar="DIR", help="use a recorded fixture")
     p.set_defaults(func=cmd_save)
 
-    p = sub.add_parser("restore", help="put a saved session back (only --dry-run so far)")
+    p = sub.add_parser("restore", help="put a saved session back")
     p.add_argument("name", nargs="?", default=session.DEFAULT_NAME,
                    help=f"session name (default {session.DEFAULT_NAME!r})")
     p.add_argument("--dry-run", action="store_true", help="show what would happen, change nothing")
     p.add_argument("--json", action="store_true", help="print the plan as JSON")
     p.add_argument("--file", metavar="PATH", help="read the session from this file instead")
     p.add_argument("--from", dest="source", metavar="DIR", help="plan against a recorded fixture")
+    p.add_argument("--timeout", type=float, default=30.0, metavar="S",
+                   help="seconds to wait for reopened apps' windows (default 30)")
     p.set_defaults(func=cmd_restore)
 
     p = sub.add_parser("doctor", help="check this system is one Snapback understands")
@@ -229,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (hypr.HyprError, session.SessionError, config.ConfigError) as exc:
+    except (hypr.HyprError, session.SessionError, config.ConfigError, restore.RestoreError) as exc:
         print(f"snapback: {exc}", file=sys.stderr)
         return 1
 

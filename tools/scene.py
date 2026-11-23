@@ -3,14 +3,20 @@
     python3 tools/scene.py build      # open test windows (class snapback-test-*)
     python3 tools/scene.py teardown   # close only those windows
     python3 tools/scene.py show       # list test windows
+    python3 tools/scene.py entries    # install hidden desktop entries that reopen them
+    python3 tools/scene.py unentries  # remove those entries
+    python3 tools/scene.py session F  # save a Snapback session of only the test windows to F
+    python3 tools/scene.py shuffle    # move the test windows out of place
 
 Only windows whose class starts with snapback-test- are ever touched.
 """
 
 import json
+import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 PREFIX = "snapback-test-"
 
@@ -110,10 +116,63 @@ def teardown():
     print(f"  closed; {len(test_windows())} test windows left")
 
 
+def entries_dir():
+    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local/share")
+    return Path(base) / "applications"
+
+
+def entries():
+    """Hidden entries (NoDisplay) so the launcher never lists them, one per test window."""
+    entries_dir().mkdir(parents=True, exist_ok=True)
+    for name, _, _ in SCENE:
+        cls = PREFIX + name
+        (entries_dir() / f"{cls}.desktop").write_text(
+            "[Desktop Entry]\nType=Application\nName=Snapback test " + name + "\n"
+            f"Exec=foot --app-id={cls} --title=snapback-{name} sleep infinity\n"
+            f"StartupWMClass={cls}\nNoDisplay=true\n")
+    print(f"  wrote {len(SCENE)} entries to {entries_dir()}")
+
+
+def unentries():
+    removed = 0
+    for path in entries_dir().glob(PREFIX + "*.desktop"):
+        path.unlink()
+        removed += 1
+    print(f"  removed {removed} entries")
+
+
+def session(path):
+    repo = Path(__file__).resolve().parent.parent
+    out = subprocess.run([sys.executable, "-m", "snapback", "save", "--dry-run", "--json"],
+                         cwd=repo, capture_output=True, text=True, check=True).stdout
+    saved = json.loads(out)
+    saved["windows"] = [w for w in saved["windows"] if w["app"].startswith(PREFIX)]
+    Path(path).write_text(json.dumps(saved, indent=2))
+    os.chmod(path, 0o600)
+    ok = sum(1 for w in saved["windows"] if w["launch"])
+    print(f"  saved {len(saved['windows'])} test windows ({ok} reopenable) to {path}")
+
+
+def shuffle():
+    """Tiled t1 -> ws 12, floating f1 tiled on ws 22, f2 nudged, f3 -> ws 22, s1 -> ws 22."""
+    windows = {c["class"]: c for c in test_windows()}
+    sel = lambda n: f"address:{windows[PREFIX + n]['address']}"  # noqa: E731
+    dispatch("window.move", window=sel("t1"), workspace="12", follow=False)
+    dispatch("window.float", window=sel("f1"), action="off")
+    f2 = windows[PREFIX + "f2"]
+    dispatch("window.move", window=sel("f2"), x=f2["at"][0] + 150, y=f2["at"][1] + 200, exact=True)
+    dispatch("window.move", window=sel("f3"), workspace="22", follow=False)
+    dispatch("window.move", window=sel("s1"), workspace="22", follow=False)
+    time.sleep(0.3)
+    show()
+
+
 def show():
     for c in test_windows():
         print(f"  {c['class']:<22} ws {c['workspace']['name']:<22} float={c['floating']} at {c['at']} size {c['size']}")
 
 
 if __name__ == "__main__":
-    {"build": build, "teardown": teardown, "show": show}[sys.argv[1]]()
+    commands = {"build": build, "teardown": teardown, "show": show, "entries": entries,
+                "unentries": unentries, "shuffle": shuffle, "session": session}
+    commands[sys.argv[1]](*sys.argv[2:])

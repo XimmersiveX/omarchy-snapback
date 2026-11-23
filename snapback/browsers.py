@@ -8,12 +8,13 @@ It is the browser's own internal format, so it is read defensively: anything
 unexpected just means no tabs are known, and a window then comes back the way
 it did before Snapback knew about tabs.
 
-Which session window is which Hyprland window: the file has no title for a
-fresh window's tabs (Chromium writes them later, or never) and no position
-under Wayland. Both number windows in the order they were made, though, so
-after pairing the windows whose selected tab has a title found on just one
-window each side, the rest are paired in that order, but only when as many
-are left on each side.
+Which session window is which Hyprland window: the file has no position under
+Wayland, and its titles can't be trusted: a fresh window's aren't written yet
+(Chromium writes them later, or never), and a page that changes its own title
+keeps the old one there. Both number windows in the order they were made,
+though, so with as many windows on each side they are paired in that order.
+Otherwise only windows whose selected tab's title is found on just one window
+each side are paired.
 
 A window is opened again with `browser --new-window -- URL...`: one window
 holding those tabs, added to the browser that is running. `--` ends the
@@ -228,17 +229,13 @@ def pair(hypr_windows: list[dict], session_windows: list[SessionWindow], suffix:
         title = client.get("title") or ""
         return title[:-len(suffix)] if title.endswith(suffix) else title
 
-    for client in list(clients):
+    if len(clients) == len(left) and all(made(c) >= 0 for c in clients):
+        return {c["address"]: w for c, w in zip(clients, left)}
+    for client in clients:
         title = bare(client)
         same = [w for w in left if w.title and w.title == title]
         if len(same) == 1 and sum(1 for c in clients if bare(c) == title) == 1:
             result[client["address"]] = same[0]
-            left.remove(same[0])
-            clients.remove(client)
-    if len(clients) == len(left) and all(made(c) >= 0 for c in clients):
-        for client, window in zip(clients, left):
-            if not window.title or window.title == bare(client):
-                result[client["address"]] = window
     return result
 
 

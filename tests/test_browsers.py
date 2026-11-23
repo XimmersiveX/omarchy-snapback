@@ -113,23 +113,23 @@ class Pair(unittest.TestCase):
          browsers.SessionWindow(20, "Default", ["https://b/"], ""),
          browsers.SessionWindow(30, "Default", ["https://c/"], "")]
 
-    def test_titles_first_then_the_order_windows_were_made(self):
-        clients = [client("0x3", "Example - Chromium", 0x69), client("0x1", "Grafana - Chromium", 0x61),
+    def test_the_order_windows_were_made_even_when_titles_disagree(self):
+        # The session file keeps a page's old title when the page changes it itself.
+        clients = [client("0x3", "Example - Chromium", 0x69), client("0x1", "Home - Grafana - Chromium", 0x61),
                    client("0x2", "New Tab - Chromium", 0x62)]
         paired = browsers.pair(clients, self.W, " - Chromium")
         self.assertEqual({a: w.id for a, w in paired.items()}, {"0x1": 10, "0x2": 20, "0x3": 30})
 
-    def test_no_guessing_by_order_when_the_counts_differ(self):
-        clients = [client("0x1", "Grafana - Chromium", 0x61), client("0x2", "x - Chromium", 0x62)]
+    def test_only_unique_titles_when_the_counts_differ(self):
+        clients = [client("0x2", "x - Chromium", 0x62), client("0x1", "Grafana - Chromium", 0x61)]
         paired = browsers.pair(clients, self.W, " - Chromium")
         self.assertEqual({a: w.id for a, w in paired.items()}, {"0x1": 10})
-
-    def test_a_title_that_disagrees_is_not_paired(self):
         windows = [browsers.SessionWindow(10, "Default", ["https://a/"], "Mail"),
                    browsers.SessionWindow(20, "Default", ["https://b/"], "Mail")]
-        clients = [client("0x1", "Mail - Chromium", 0x61), client("0x2", "Docs - Chromium", 0x62)]
-        paired = browsers.pair(clients, windows, " - Chromium")
-        self.assertEqual({a: w.id for a, w in paired.items()}, {"0x1": 10})
+        clients = [client("0x1", "Mail - Chromium", 0x61)]
+        self.assertEqual(browsers.pair(clients, windows, " - Chromium"), {})  # two windows have that title
+        clients = [client("0x1", "Grafana - Chromium", 0x61), client("0x2", "Grafana - Chromium", 0x62)]
+        self.assertEqual(browsers.pair(clients, self.W, " - Chromium"), {})  # and here two clients
 
 
 class OnDisk(unittest.TestCase):

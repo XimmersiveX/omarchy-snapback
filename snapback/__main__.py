@@ -2,6 +2,7 @@
 
     python -m snapback inspect [--json] [--from DIR]
     python -m snapback save [NAME] [--dry-run] [--json] [--force]
+    python -m snapback restore [NAME] --dry-run [--json] [--file PATH] [--from DIR]
     python -m snapback doctor
 """
 
@@ -12,7 +13,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, apps, config, hypr, omarchy, session
+from . import __version__, apps, config, hypr, omarchy, plan, session
 from .capture import Source, capture
 
 TESTED_HYPRLAND = ("v0.56",)
@@ -97,6 +98,79 @@ def show_session(saved: dict) -> None:
             print(f"  !!    {w['app']}  [{where}]  {w['problem']}")
 
 
+def cmd_restore(args: argparse.Namespace) -> int:
+    if not args.dry_run:
+        print("snapback: restoring for real isn't built yet; add --dry-run to see the plan",
+              file=sys.stderr)
+        return 2
+    path = Path(args.file) if args.file else session.session_path(args.name)
+    saved = session.read(path)
+    cfg = config.load()
+    resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
+    source = Source.from_dir(Path(args.source)) if args.source else Source.live()
+    result = plan.build(saved, source, resolver.entries, resolver.is_never,
+                        apps.default_terminal(), name=path.stem)
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        show_plan(result, source)
+    return 0
+
+
+def show_plan(result: plan.Plan, source: Source) -> None:
+    connector = {m.identity: m.name for m in source.monitors()}
+    print(f"Restore plan for {result.session!r}"
+          + (f", saved {result.saved_at}" if result.saved_at else ""))
+    for identity in result.missing_monitors:
+        print(f"  note  {identity} isn't plugged in: its windows wait on another screen "
+              f"and Omarchy moves them home when it's back")
+
+    prep = [w for w in result.workspaces if w.action != "ok"]
+    if prep:
+        print()
+        print("Workspaces first")
+        for w in prep:
+            whose = f" (waiting for {w.owner})" if w.waiting else ""
+            if w.action == "create":
+                print(f"  make  ws {w.workspace} on {w.monitor}{whose}")
+            else:
+                print(f"  move  ws {w.workspace} from {w.now_on} to {w.monitor}{whose}")
+
+    print()
+    print(f"Windows ({len(result.windows)})")
+    for w in result.windows:
+        where = f"ws {w.workspace}" if w.workspace else ""
+        if w.slot:
+            where += f" ({connector.get(w.owner, 'unplugged')} slot {w.slot})"
+        if w.waiting and w.monitor:
+            where += f", waiting on {w.monitor}"
+        if w.geometry:
+            g = w.geometry
+            where += f", floating {g.w:g}x{g.h:g} at {g.x:g},{g.y:g}"
+        if w.action == "launch":
+            print(f"  open  {w.app}  -> {where}")
+            print(f"            $ {' '.join(w.command)}")
+        elif w.action == "move":
+            print(f"  move  {w.app}  ws {w.now} -> {where}")
+        elif w.action == "in-place":
+            print(f"  ok    {w.app}  already on {where}")
+        elif w.action == "skip":
+            print(f"  skip  {w.app}  {w.reason}")
+        else:
+            print(f"  !!    {w.app}  {w.reason}")
+        for note in w.notes:
+            print(f"            {note}")
+
+    parts = [f"{result.count('launch')} to open", f"{result.count('move')} to move",
+             f"{result.count('in-place')} already in place"]
+    for action, label in (("skip", "skipped"), ("problem", "can't be restored")):
+        if result.count(action):
+            parts.append(f"{result.count(action)} {label}")
+    print()
+    print("Dry run: " + ", ".join(parts) + "."
+          + (f" {result.untouched} other open window(s) left alone." if result.untouched else ""))
+
+
 def cmd_doctor(_: argparse.Namespace) -> int:
     problems = 0
     try:
@@ -139,6 +213,15 @@ def main(argv: list[str] | None = None) -> int:
                    help="replace a saved session even with one that reopens nothing")
     p.add_argument("--from", dest="source", metavar="DIR", help="use a recorded fixture")
     p.set_defaults(func=cmd_save)
+
+    p = sub.add_parser("restore", help="put a saved session back (only --dry-run so far)")
+    p.add_argument("name", nargs="?", default=session.DEFAULT_NAME,
+                   help=f"session name (default {session.DEFAULT_NAME!r})")
+    p.add_argument("--dry-run", action="store_true", help="show what would happen, change nothing")
+    p.add_argument("--json", action="store_true", help="print the plan as JSON")
+    p.add_argument("--file", metavar="PATH", help="read the session from this file instead")
+    p.add_argument("--from", dest="source", metavar="DIR", help="plan against a recorded fixture")
+    p.set_defaults(func=cmd_restore)
 
     p = sub.add_parser("doctor", help="check this system is one Snapback understands")
     p.set_defaults(func=cmd_doctor)

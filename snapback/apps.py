@@ -198,7 +198,7 @@ class Resolver:
         proc = proc or ProcInfo()
         if not app_class:
             return Resolution(skip="window has no app class")
-        if self._never(app_class):
+        if self.is_never(app_class):
             return Resolution(skip=f"never restore: {app_class}")
 
         entry, via = self._find(app_class, proc)
@@ -207,13 +207,13 @@ class Resolver:
                 return Resolution(problem=via)
             return Resolution(problem=f"no installed app matches window class {app_class!r}; "
                                       f"map it under [apps] in Snapback's config")
-        if self._never(entry.id) or self._never(entry.name):
+        if self.is_never(entry.id) or self.is_never(entry.name):
             return Resolution(skip=f"never restore: {entry.name}")
         if entry.terminal_emulator:
             return Resolution(launch=Launch("terminal", entry.id, via, cwd=proc.shell_cwd))
         return Resolution(launch=Launch("desktop", entry.id, via))
 
-    def _never(self, text: str) -> bool:
+    def is_never(self, text: str) -> bool:
         low = text.casefold()
         return any(pattern.casefold() in low for pattern in self.never_restore if pattern)
 
@@ -252,3 +252,15 @@ class Resolver:
             if entry_id.casefold() == low:
                 return entry
         return None
+
+
+def default_terminal() -> str | None:
+    """The desktop entry xdg-terminal-exec opens, e.g. "foot.desktop"."""
+    import subprocess
+    try:
+        result = subprocess.run(["xdg-terminal-exec", "--print-id"],
+                                capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    line = result.stdout.strip().splitlines()[:1]
+    return line[0].split(":", 1)[0] if result.returncode == 0 and line else None

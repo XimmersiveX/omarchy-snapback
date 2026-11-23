@@ -147,6 +147,20 @@ Panel {
     function hide(): void { root.close() }
     function toggle(): void { root.toggle() }
     function refresh(): string { snap.refresh(); return "ok" }
+    // omarchy-shell snapback switchTo NAME: what clicking the session does,
+    // e.g. from a keybinding. It still asks before closing anything.
+    function switchTo(name: string): string {
+      if (!Model.NAME_RE.test(name)) return "bad session name"
+      root.open()
+      root.switchTo(name)
+      return "ok"
+    }
+    function cancelSwitch(): void { root.cancelSwitch() }
+    function state(): string {
+      return JSON.stringify({ opened: root.opened, switchName: root.switchName,
+                              others: root.switchOthers.length, busy: snap.busy,
+                              status: snap.actionStatus, error: snap.actionIsError })
+    }
   }
 
   BarIconButton {

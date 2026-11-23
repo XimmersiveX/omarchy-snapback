@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from snapback.apps import ProcInfo, Resolver, ids_from_unit, load_entries, parse_desktop_entry, read_proc
+from snapback.apps import DesktopEntry, ProcInfo, Resolver, ids_from_unit, load_entries, parse_desktop_entry, read_proc
 
 
 def entry(name, exec_, wm_class=None, **extra):
@@ -12,6 +12,26 @@ def entry(name, exec_, wm_class=None, **extra):
         lines.append(f"StartupWMClass={wm_class}")
     lines += [f"{k}={v}" for k, v in extra.items()]
     return "\n".join(lines) + "\n"
+
+
+class OmarchyTerminalApps(unittest.TestCase):
+    def entries(self, terminal=True):
+        btop = DesktopEntry("btop.desktop", "btop", "btop", None, False, False, Path("btop.desktop"), terminal)
+        return {"btop.desktop": btop}
+
+    def test_omarchy_tui_window_reopens_its_app_in_a_terminal(self):
+        result = Resolver(self.entries()).resolve("org.omarchy.btop")
+        self.assertEqual(result.launch.to_dict(), {"how": "tui", "entry": "btop.desktop",
+                                                   "via": "omarchy-tui", "app_id": "org.omarchy.btop"})
+
+    def test_only_apps_whose_entry_runs_in_a_terminal(self):
+        self.assertIsNotNone(Resolver(self.entries(terminal=False)).resolve("org.omarchy.btop").problem)
+        self.assertIsNotNone(Resolver(self.entries()).resolve("org.omarchy.rm").problem)
+
+    def test_exec_args_drop_field_codes(self):
+        from snapback.apps import exec_args
+        self.assertEqual(exec_args('mpv --title="a b" -- %U'), ["mpv", "--title=a b", "--"])
+        self.assertEqual(exec_args("app 100%%"), ["app", "100%"])
 
 
 class Apps(unittest.TestCase):
@@ -39,6 +59,7 @@ class Apps(unittest.TestCase):
                 entry("YouTube", "omarchy-launch-webapp https://youtube.com/", "chrome-youtube.com__-Default"),
             self.user / "applications/Zoom.desktop": entry("Zoom", "omarchy-webapp-handler-zoom %u"),
             self.user / "applications/omarchy-hotkeys.desktop": entry("Hotkeys", "~/.local/bin/omarchy-hotkeys"),
+            self.system / "applications/btop.desktop": entry("btop++", "btop", Terminal="true"),
         }
         for path, text in files.items():
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,6 +80,12 @@ class Apps(unittest.TestCase):
         self.assertEqual(self.entries["chromium.desktop"].exec, "chromium %U")  # not the action's Exec
         self.assertIn("vendor-tool.desktop", self.entries)
         self.assertNotIn("removed.desktop", self.entries)  # the user's Hidden copy hides it
+
+    def test_omarchy_tui_from_installed_entries(self):
+        self.assertTrue(self.entries["btop.desktop"].terminal)
+        self.assertFalse(self.entries["chromium.desktop"].terminal)
+        launch = self.launch("org.omarchy.btop")
+        self.assertEqual((launch.how, launch.entry, launch.app_id), ("tui", "btop.desktop", "org.omarchy.btop"))
 
     def test_wm_class(self):
         launch = self.launch("chromium")

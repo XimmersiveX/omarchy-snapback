@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Protocol
 
 from . import hypr
-from .geometry import logical_size
+from .geometry import Rect, contains, logical_size
 from .plan import Plan, WindowStep
 
 FAILSAFE_MS = 120_000
@@ -110,7 +110,7 @@ class LiveDesk:
 @dataclass
 class Result:
     step: WindowStep
-    outcome: str                  # placed, in-place, failed, skipped
+    outcome: str                  # placed, in-place, failed, skipped, unrestorable
     address: str | None = None
     detail: str | None = None
 
@@ -200,6 +200,8 @@ def _restore(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float
             report.results.append(Result(step, "in-place", step.window))
         elif step.action == "launch":
             launches.append(step)
+        elif step.action == "problem":
+            report.results.append(Result(step, "unrestorable", detail=step.reason))
         else:
             report.results.append(Result(step, "skipped", detail=step.reason))
     if not launches:
@@ -256,7 +258,7 @@ def _order_tiles(desk: Desk, report: Report, settle: float, log) -> None:
     boxes = {}
     for m in desk.monitors():
         w, h = logical_size(m["width"], m["height"], m["scale"], m.get("transform", 0))
-        boxes[m["id"]] = (m["x"], m["y"], w, h)
+        boxes[m["id"]] = Rect(m["x"], m["y"], w, h)
     clients = {c["address"]: c for c in desk.clients()}
 
     for workspace, results in groups.items():
@@ -266,9 +268,7 @@ def _order_tiles(desk: Desk, report: Report, settle: float, log) -> None:
             box = boxes.get(c["monitor"]) if c else None
             if not c or not box or c.get("floating") or c["workspace"]["name"] != workspace:
                 break
-            x, y, w, h = box
-            tiles[r.address] = ((c["at"][0] - x + c["size"][0] / 2) / w,
-                                (c["at"][1] - y + c["size"][1] / 2) / h)
+            tiles[r.address] = _tile_center(c, box, boxes.values())
         else:
             swaps = _swaps([r.step.tile for r in results], [tiles[r.address] for r in results])
             if not swaps:
@@ -281,6 +281,18 @@ def _order_tiles(desk: Desk, report: Report, settle: float, log) -> None:
                 log(f"put the tiles of ws {workspace} back in order")
             except hypr.HyprError as exc:
                 report.errors.append(f"couldn't reorder ws {workspace}: {exc}")
+
+
+def _tile_center(client: dict, box: Rect, boxes) -> tuple[float, float]:
+    """A tiled window's center as a fraction of the monitor it was laid out on.
+
+    A hidden workspace moved from another monitor keeps tile positions laid
+    out there until it is shown, so those are measured on that monitor.
+    """
+    cx, cy = client["at"][0] + client["size"][0] / 2, client["at"][1] + client["size"][1] / 2
+    if not contains(box, cx, cy):
+        box = next((b for b in boxes if contains(b, cx, cy)), box)
+    return (cx - box.x) / box.w, (cy - box.y) / box.h
 
 
 def _swaps(saved: list[tuple[float, float]], now: list[tuple[float, float]]) -> list[tuple[int, int]]:

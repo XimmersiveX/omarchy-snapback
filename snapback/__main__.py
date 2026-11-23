@@ -135,9 +135,12 @@ def cmd_restore(args: argparse.Namespace) -> int:
 def show_report(report: restore.Report, off: list[plan.WindowStep]) -> None:
     print()
     for r in report.results:
-        mark = {"placed": "ok  ", "in-place": "ok  ", "failed": "FAIL", "skipped": "skip"}[r.outcome]
+        mark = {"placed": "ok  ", "in-place": "ok  ", "failed": "FAIL", "skipped": "skip",
+                "unrestorable": "!!  "}[r.outcome]
         where = f"ws {r.step.workspace}" if r.step.workspace else ""
         print(f"  {mark}  {r.step.app}  {where}" + (f"  {r.detail}" if r.detail else ""))
+    for workspace in report.reordered:
+        print(f"  ok    tiles on ws {workspace} put back in their saved order")
     for extra in report.extra:
         print(f"  note  an extra window opened and was left alone: {extra}")
     for error in report.errors:
@@ -145,7 +148,9 @@ def show_report(report: restore.Report, off: list[plan.WindowStep]) -> None:
     print()
     print(f"Restored: {report.count('placed')} placed, {report.count('in-place')} already in place"
           + (f", {report.count('failed')} failed" if report.count('failed') else "")
-          + (f", {report.count('skipped')} not restored" if report.count('skipped') else "") + ".")
+          + (f", {report.count('skipped')} skipped" if report.count('skipped') else "")
+          + (f", {report.count('unrestorable')} can't be restored" if report.count('unrestorable') else "")
+          + ".")
     if off:
         print("Check: these aren't where they belong yet:")
         for w in off:

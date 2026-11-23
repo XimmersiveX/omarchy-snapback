@@ -35,7 +35,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .apps import DesktopEntry
+from .apps import TUI_ID, DesktopEntry, exec_args
 from .capture import CapturedWindow, Source, capture
 from .geometry import Monitor, Placement, Rect, project
 from .omarchy import SLOTS
@@ -123,6 +123,11 @@ def desktop_command(entry_id: str) -> list[str]:
     return ["uwsm-app", "--", entry_id]
 
 
+def tui_command(app_id: str, entry: DesktopEntry) -> list[str]:
+    """How omarchy-launch-tui opens a terminal app, from the app's own entry."""
+    return ["uwsm-app", "--", "xdg-terminal-exec", f"--app-id={app_id}", "-e", *exec_args(entry.exec)]
+
+
 def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
           never: Callable[[str], bool] = lambda text: False,
           default_terminal: str | None = None,
@@ -205,7 +210,13 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
             step.reason = f"{launch['entry']} is no longer installed"
             continue
         step.action = "launch"
-        if launch["how"] == "terminal":
+        if launch["how"] == "tui":
+            app_id = launch.get("app_id") or ""
+            if not TUI_ID.match(app_id) or not entry.terminal or not exec_args(entry.exec):
+                step.action, step.reason = "problem", f"can't open {entry.id} in a terminal"
+                continue
+            step.command = tui_command(app_id, entry)
+        elif launch["how"] == "terminal":
             cwd = launch.get("cwd")
             if cwd and not is_dir(cwd):
                 step.notes.append(f"{cwd} no longer exists; opens in your home folder")

@@ -9,7 +9,10 @@ How a window's app is found, first match wins:
     1. the user's config maps the window class to a desktop entry
     2. a desktop entry declares the class as its StartupWMClass
     3. a desktop entry is named after the class (foot -> foot.desktop)
-    4. the systemd unit the window's process runs in names a desktop entry
+    4. an Omarchy terminal app (omarchy-launch-tui btop gives the window class
+       org.omarchy.btop) whose desktop entry runs in a terminal (btop.desktop,
+       Terminal=true); it reopens in the default terminal under the same class
+    5. the systemd unit the window's process runs in names a desktop entry
        (app-com.t3tools.T3Code-88383.scope -> com.t3tools.T3Code.desktop)
 """
 
@@ -30,6 +33,7 @@ class DesktopEntry:
     hidden_from_menus: bool      # NoDisplay=true: launchable, not listed
     terminal_emulator: bool      # Categories includes TerminalEmulator
     path: Path
+    terminal: bool = False       # Terminal=true: the app runs inside a terminal
 
 
 @dataclass(frozen=True)
@@ -42,15 +46,18 @@ class ProcInfo:
 
 @dataclass(frozen=True)
 class Launch:
-    how: str                 # "desktop" or "terminal"
+    how: str                 # "desktop", "terminal", or "tui" (an app run in a terminal)
     entry: str               # desktop entry id
-    via: str                 # which rule found it: config, wm-class, entry-id, systemd-unit
+    via: str                 # which rule found it: config, wm-class, entry-id, omarchy-tui, systemd-unit
     cwd: str | None = None   # terminals only
+    app_id: str | None = None  # tui only: the window class to open it under
 
     def to_dict(self) -> dict:
         data = {"how": self.how, "entry": self.entry, "via": self.via}
         if self.cwd:
             data["cwd"] = self.cwd
+        if self.app_id:
+            data["app_id"] = self.app_id
         return data
 
 
@@ -122,6 +129,7 @@ def load_entries(dirs: list[Path]) -> dict[str, DesktopEntry]:
                 hidden_from_menus=values.get("NoDisplay") == "true",
                 terminal_emulator="TerminalEmulator" in categories,
                 path=path,
+                terminal=values.get("Terminal") == "true",
             )
     return entries
 
@@ -188,6 +196,21 @@ def ids_from_unit(unit: str | None) -> list[str]:
     return candidates
 
 
+OMARCHY_TUI = "org.omarchy."
+TUI_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def exec_args(exec_line: str) -> list[str]:
+    """A desktop entry's Exec line as arguments, without field codes (%U, %f...)."""
+    import shlex
+    args = []
+    for arg in shlex.split(exec_line):
+        if re.fullmatch(r"%[fFuUdDnNickvm]", arg):
+            continue
+        args.append(arg.replace("%%", "%"))
+    return args
+
+
 @dataclass
 class Resolver:
     entries: dict[str, DesktopEntry]
@@ -209,6 +232,8 @@ class Resolver:
                                       f"map it under [apps] in Snapback's config")
         if self.is_never(entry.id) or self.is_never(entry.name):
             return Resolution(skip=f"never restore: {entry.name}")
+        if via == "omarchy-tui":
+            return Resolution(launch=Launch("tui", entry.id, via, app_id=app_class))
         if entry.terminal_emulator:
             return Resolution(launch=Launch("terminal", entry.id, via, cwd=proc.shell_cwd))
         return Resolution(launch=Launch("desktop", entry.id, via))
@@ -236,6 +261,11 @@ class Resolver:
         entry = self._by_id(app_class)
         if entry:
             return entry, "entry-id"
+
+        if app_class.startswith(OMARCHY_TUI) and TUI_ID.match(app_class):
+            entry = self._by_id(app_class[len(OMARCHY_TUI):])
+            if entry and entry.terminal:
+                return entry, "omarchy-tui"
 
         for candidate in ids_from_unit(proc.unit):
             entry = self._by_id(candidate)

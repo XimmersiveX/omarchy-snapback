@@ -195,6 +195,17 @@ class TileOrder(unittest.TestCase):
             if step.app == "snapback-test-f1":
                 self.assertIsNone(step.tile)
 
+    def test_stale_positions_on_a_moved_hidden_workspace(self):
+        # ws 22 moved to the portrait ROG while hidden: Hyprland still reports
+        # its tiles where the main ROG laid them out, here swapped.
+        source, t1, t2 = self.swapped()
+        portrait = next(m["id"] for m in source.snapshot["monitors"] if m["name"] == "DP-2")
+        for c in (t1, t2):
+            c["monitor"] = portrait
+        fake = FakeDesk(source)
+        restore.run(make_plan(source), fake)
+        self.assertEqual(len([m for m, _ in fake.calls if m == "window.swap"]), 1)
+
     def test_a_refused_swap_is_reported(self):
         source, _, _ = self.swapped()
         report = restore.run(make_plan(source), FakeDesk(source, fail={"window.swap"}))
@@ -202,6 +213,14 @@ class TileOrder(unittest.TestCase):
 
 
 class Swaps(unittest.TestCase):
+    def test_tile_center_of_a_stale_window_is_measured_where_it_was_laid_out(self):
+        from snapback.geometry import Rect
+        main, portrait = Rect(3840, 750, 2560, 1440), Rect(6400, 0, 1440, 2560)
+        client = {"at": [3852, 788], "size": [1261, 1390]}  # left tile of the main ROG
+        x, y = restore._tile_center(client, portrait, [main, portrait])
+        self.assertAlmostEqual(x, (3852 + 630.5 - 3840) / 2560)
+        self.assertAlmostEqual(y, (788 + 695 - 750) / 1440)
+
     def test_permutations(self):
         # Three tiles in a row; the windows sit in them rotated one step.
         tiles = [(0.2, 0.5), (0.5, 0.5), (0.8, 0.5)]
@@ -269,8 +288,8 @@ class Launches(unittest.TestCase):
         self.assertEqual(launched.outcome, "placed")
         self.assertNotIn(launched.address, old)
 
-    def test_unresolved_windows_are_skipped(self):
-        self.assertEqual(self.by_app["snapback-test-f1"].outcome, "skipped")
+    def test_unresolved_windows_are_reported_as_unrestorable(self):
+        self.assertEqual(self.by_app["snapback-test-f1"].outcome, "unrestorable")
 
     def test_focus_on_activate_is_off_during_and_on_after(self):
         self.assertTrue(self.fake.option)

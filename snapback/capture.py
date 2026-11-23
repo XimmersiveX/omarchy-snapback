@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import hypr
-from .geometry import Monitor, Placement, Rect, monitors_from_hypr, relative
+from .geometry import Monitor, Placement, Rect, layout_frame, monitors_from_hypr, relative
 from .omarchy import BLOCKS_FILE, MERGED_FILE, WorkspaceState
 
 
@@ -78,6 +78,9 @@ def capture(source: Source) -> list[CapturedWindow]:
         else:
             owner, name = None, ws["name"]
         rect = Rect(*client["at"], *client["size"])
+        frame = monitor
+        if monitor and not client.get("floating"):
+            frame = layout_frame(rect, monitor, monitors)
         windows.append(CapturedWindow(
             address=client["address"],
             app=client.get("initialClass") or client.get("class") or "",
@@ -91,7 +94,7 @@ def capture(source: Source) -> list[CapturedWindow]:
             fullscreen=int(client.get("fullscreen") or 0),
             pinned=bool(client.get("pinned")),
             grouped=bool(client.get("grouped")),
-            placement=relative(rect, monitor) if monitor else None,
+            placement=relative(rect, frame) if frame else None,
             focus=int(client.get("focusHistoryID", -1)),
             stable_id=client.get("stableId"),
         ))

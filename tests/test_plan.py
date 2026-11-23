@@ -257,6 +257,27 @@ class WhichWindowIsWhich(unittest.TestCase):
         self.assertEqual(by_title["Mail"].action, "launch")
 
 
+class TerminalApps(unittest.TestCase):
+    def test_omarchy_tui_command(self):
+        session = saved_scene()
+        chromium = next(w for w in session["windows"] if w["app"] == "chromium")
+        chromium.update(app="org.omarchy.btop", title="btop", stable_id=None,
+                        launch={"how": "tui", "entry": "btop.desktop", "via": "omarchy-tui",
+                                "app_id": "org.omarchy.btop"})
+        btop = DesktopEntry("btop.desktop", "btop", "btop --utf-force %U", None, False, False,
+                            Path("btop.desktop"), True)
+        entries = dict(ENTRIES, **{"btop.desktop": btop})
+        result = plan.build(session, empty(desk("tv-on-scene")), entries)
+        step = next(w for w in result.windows if w.app == "org.omarchy.btop")
+        self.assertEqual(step.command, ["uwsm-app", "--", "xdg-terminal-exec", "--app-id=org.omarchy.btop",
+                                        "-e", "btop", "--utf-force"])
+
+        chromium["launch"]["app_id"] = "x; rm -rf ~"
+        result = plan.build(session, empty(desk("tv-on-scene")), entries)
+        step = next(w for w in result.windows if w.app == "org.omarchy.btop")
+        self.assertEqual((step.action, step.command), ("problem", None))
+
+
 class Changes(unittest.TestCase):
     def test_moved_floating_window_is_put_back(self):
         source = desk("tv-on-scene")

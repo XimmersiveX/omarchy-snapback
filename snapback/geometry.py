@@ -118,6 +118,23 @@ class Placement:
         return cls(**{k: float(data[k]) for k in ("dx", "dy", "w", "h", "monitor_w", "monitor_h")})
 
 
+def contains(box: Rect, x: float, y: float) -> bool:
+    return box.x <= x < box.right and box.y <= y < box.bottom
+
+
+def layout_frame(window: Rect, monitor: Monitor, monitors: list[Monitor]) -> Monitor:
+    """The monitor a tiled window's position was laid out on.
+
+    Hyprland lays out a hidden workspace's tiles only when it is shown, so a
+    workspace moved to another monitor while hidden keeps positions on the old
+    one. Those still say which tile is where, measured on that monitor.
+    """
+    cx, cy = window.center
+    if contains(monitor.box, cx, cy):
+        return monitor
+    return next((m for m in monitors if contains(m.box, cx, cy)), monitor)
+
+
 def relative(window: Rect, monitor: Monitor) -> Placement:
     return Placement(window.x - monitor.box.x, window.y - monitor.box.y,
                      window.w, window.h, monitor.box.w, monitor.box.h)

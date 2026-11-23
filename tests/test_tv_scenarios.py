@@ -93,7 +93,9 @@ class TvUnplugged(unittest.TestCase):
 class TvReplugged(unittest.TestCase):
     """Monitor re-enabled. Omarchy 4.5.0 put ws 2 back, but ws 1 came back as ws 3,
     because Hyprland had already created an empty ws 1 on the returning TV.
-    These tests pin that behavior so Snapback's fix-up can be written against it."""
+    This is stock Omarchy's bug, issue #16328, fixed upstream by PR #16349. Snapback
+    doesn't fix it; these tests pin what an unfixed Omarchy does, so the check after a
+    restore can tell a window is out of its slot."""
 
     def setUp(self):
         self.source, self.w = load("tv-replugged")

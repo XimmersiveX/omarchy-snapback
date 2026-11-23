@@ -9,6 +9,7 @@ var GLYPH = {
   previous: String.fromCodePoint(0xF054D),  // undo-variant
   named: String.fromCodePoint(0xF056E),     // view-dashboard
   remove: String.fromCodePoint(0xF01B4),    // delete
+  switchTo: String.fromCodePoint(0xF04E1),  // swap-horizontal
   save: String.fromCodePoint(0xF0193)
 }
 
@@ -71,8 +72,34 @@ function parseRestore(r) {
       return { app: str(p && p.app, 80), detail: str(p && p.detail, 200) }
     }),
     errors: (Array.isArray(r.errors) ? r.errors.slice(0, 5) : []).map(function (e) { return str(e, 300) }),
-    misplaced: num(r.misplaced)
+    misplaced: num(r.misplaced),
+    closed: num(r.closed),
+    kept: (Array.isArray(r.kept) ? r.kept.slice(0, 20) : []).map(function (k) { return str(k, 80) })
   }
+}
+
+// The windows switching to a session would close, from
+// `snapback restore NAME --dry-run --json`. null when the plan can't be read.
+function parseOthers(text) {
+  var raw
+  try { raw = JSON.parse(String(text)) } catch (e) { return null }
+  if (!raw || typeof raw !== "object" || !Array.isArray(raw.others)) return null
+  return raw.others.slice(0, 100).map(function (o) {
+    return { name: str(o && (o.name || o.app), 80), title: str(o && o.title, 120) }
+  })
+}
+
+// "T3 Code, Chromium and 2 more": each app once, the first `shown` by name.
+function othersLine(others, shown, t) {
+  var names = []
+  for (var i = 0; i < others.length; i++)
+    if (names.indexOf(others[i].name) < 0) names.push(others[i].name)
+  var counts = names.map(function (n) {
+    var c = others.filter(function (o) { return o.name === n }).length
+    return c > 1 ? t("others.times").arg(n).arg(c) : n
+  })
+  if (counts.length <= shown) return counts.join(", ")
+  return t("others.more").arg(counts.slice(0, shown).join(", ")).arg(counts.length - shown)
 }
 
 function isOwn(name) { return OWN.indexOf(name) >= 0 }

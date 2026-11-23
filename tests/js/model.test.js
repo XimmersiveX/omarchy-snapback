@@ -121,6 +121,22 @@ test("errorLine", () => {
   assert.strictEqual(M.errorLine(""), "")
 })
 
+test("parseOthers", () => {
+  const others = M.parseOthers(JSON.stringify({ others: [{ name: "T3 Code", title: "x".repeat(500), app: "a" }, { app: "foot" }] }))
+  assert.deepStrictEqual(Array.from(others, (o) => o.name), ["T3 Code", "foot"])
+  assert.strictEqual(others[0].title.length, 120)
+  assert.strictEqual(M.parseOthers("nope"), null)
+  assert.strictEqual(M.parseOthers(JSON.stringify({ windows: [] })), null)
+  assert.strictEqual(M.parseOthers(JSON.stringify({ others: [] })).length, 0)
+})
+
+test("othersLine", () => {
+  const o = (n) => ({ name: n, title: "" })
+  assert.strictEqual(M.othersLine([o("T3 Code"), o("Chromium")], 3, t), "T3 Code, Chromium")
+  assert.strictEqual(M.othersLine([o("Chromium"), o("Foot"), o("Chromium")], 3, t), "Chromium (×2), Foot")
+  assert.strictEqual(M.othersLine([o("A"), o("B"), o("C"), o("D"), o("E")], 3, t), "A, B, C and 2 more")
+})
+
 test("every string the panel uses is in en.json", () => {
   const used = new Set()
   for (const file of ["Panel.qml", "Service.qml", "Model.js"]) {

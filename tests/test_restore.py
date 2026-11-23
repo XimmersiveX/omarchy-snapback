@@ -31,6 +31,9 @@ class FakeDesk:
         self.opens = opens or {}        # command[-1] -> list of (class, title) it opens
         self.delay = delay              # polls before a launched app's windows appear
         self.fail = fail or set()       # dispatch methods that error
+        self.stubborn = set()           # addresses that ask before closing, so stay open
+        self.slow = {}                  # address -> polls it takes to close
+        self.closing = []               # (time, address)
         self.calls = []
         self.launched = []
         self.option = True
@@ -46,6 +49,12 @@ class FakeDesk:
 
     # Desk interface
     def clients(self):
+        for when, address in list(self.closing):
+            if when <= self.clock:
+                self.closing.remove((when, address))
+                client = self._by("address:" + address)
+                self._remove(client)
+                self._clients.remove(client)
         while self.queue and self.queue[0][0] <= self.clock:
             client = self.queue.pop(0)[1]
             self._clients.append(client)
@@ -78,6 +87,13 @@ class FakeDesk:
                 self._workspaces.append({"id": int(name), "name": name,
                                          "monitor": self.names[client["monitor"]], "windows": 1})
             self._insert(client)
+        elif method == "window.close":
+            client = self._by(args["window"])
+            if client["address"] in self.slow:
+                self.closing.append((self.clock + self.slow[client["address"]], client["address"]))
+            elif client["address"] not in self.stubborn:
+                self._remove(client)
+                self._clients.remove(client)
         elif method == "workspace.move":
             for w in self._workspaces:
                 if w["name"] == args["workspace"]:
@@ -518,10 +534,82 @@ class Failures(unittest.TestCase):
         source = desk("tv-unplugged")
         fake = FakeDesk(source)
         p = make_plan(source)
-        before = fake.focused = p.windows[-1].window  # not the session's last-used one
-        self.assertNotEqual(before, p.windows[0].window)
+        before = fake.focused = next(w.window for w in p.windows if w.app == "snapback-test-t2")
+        self.assertNotEqual(before, p.windows[0].window)  # not the session's last-used one
         restore.run(p, fake)
         self.assertEqual(fake.calls[-1], ("focus", {"window": f"address:{before}"}))
+
+    def test_focus_never_pulls_a_screen_off_the_restored_view(self):
+        # Chromium is on ws 13, but the session's view for DP-2 is ws 12.
+        source = desk("tv-unplugged")
+        fake = FakeDesk(source)
+        p = make_plan(source)
+        hidden = fake.focused = next(w.window for w in p.windows if w.app == "chromium")
+        restore.run(p, fake)
+        shown = {m["activeWorkspace"]["name"] for m in fake.monitors()}
+        self.assertEqual(shown, {"12", "22"})
+        last = [c for c in fake.calls if c[0] == "focus" and "window" in c[1]][-1]
+        self.assertNotEqual(last[1]["window"], f"address:{hidden}")
+
+
+
+class SwitchTo(unittest.TestCase):
+    def setUp(self):
+        self.source = desk("tv-on-scene")
+        session = saved_scene()
+        session["windows"] = [w for w in session["windows"] if w["app"] == "chromium"]
+        self.plan = plan.build(session, self.source, ENTRIES, default_terminal="foot.desktop",
+                               is_dir=lambda path: True)
+        self.fake = FakeDesk(self.source)
+
+    def test_closes_the_windows_the_session_does_not_name_first(self):
+        report = restore.run(self.plan, self.fake, close_others=True)
+        left = {c["address"] for c in self.fake.clients()}
+        for other in self.plan.others:
+            self.assertNotIn(other["address"], left)
+        self.assertEqual(sorted(report.closed), sorted(o["name"] for o in self.plan.others))
+        closes = [i for i, c in enumerate(self.fake.calls) if c[0] == "window.close"]
+        first_other = next(i for i, c in enumerate(self.fake.calls) if c[0] != "window.close")
+        self.assertLess(max(closes), first_other)
+        self.assertIn("chromium", {c["initialClass"] for c in self.fake.clients()})
+
+    def test_a_window_that_asks_first_stays_and_is_reported(self):
+        stubborn = self.plan.others[0]
+        self.fake.stubborn.add(stubborn["address"])
+        report = restore.run(self.plan, self.fake, close_others=True)
+        self.assertEqual(report.kept, [stubborn["name"]])
+        self.assertIn(stubborn["address"], {c["address"] for c in self.fake.clients()})
+        self.assertEqual(len(report.closed), len(self.plan.others) - 1)
+
+    def test_waits_for_an_app_that_takes_a_moment_to_close(self):
+        slow = self.plan.others[0]
+        self.fake.slow[slow["address"]] = 2
+        report = restore.run(self.plan, self.fake, close_others=True)
+        self.assertEqual(report.kept, [])
+        self.assertEqual(len(report.closed), len(self.plan.others))
+
+    def test_nothing_is_closed_unless_asked(self):
+        report = restore.run(self.plan, self.fake)
+        self.assertFalse(any(c[0] == "window.close" for c in self.fake.calls))
+        self.assertEqual((report.closed, report.kept), ([], []))
+
+    def test_a_refused_close_is_an_error_not_a_crash(self):
+        self.fake.fail.add("window.close")
+        report = restore.run(self.plan, self.fake, close_others=True)
+        self.assertEqual(len(report.errors), len(self.plan.others))
+        self.assertEqual(report.closed, [])
+
+
+class Views(unittest.TestCase):
+    def test_each_screen_shows_the_workspace_it_showed_when_saved(self):
+        source = desk("tv-on-scene")
+        fake = FakeDesk(source)
+        for m in fake._monitors:  # someone looked at other workspaces since
+            m["activeWorkspace"] = {"id": 15, "name": "15"} if m["name"] == "DP-2" else m["activeWorkspace"]
+        fake._workspaces.append({"id": 15, "name": "15", "monitor": "DP-2", "windows": 0})
+        restore.run(make_plan(source), fake)
+        self.assertEqual({m["name"]: m["activeWorkspace"]["name"] for m in fake.monitors()},
+                         {"DP-2": "12", "DP-3": "22", "HDMI-A-1": "1"})
 
 
 class LockTest(unittest.TestCase):

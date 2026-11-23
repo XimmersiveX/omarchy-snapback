@@ -1,6 +1,10 @@
 """Carry out a restore plan on the live desktop.
 
 Order matters:
+    0. Only when switching to a session (`close_others`): ask the open windows
+       the session doesn't name to close, the way their own close button
+       does, so an app with unsaved work can still ask about it. A window that
+       stays open is reported, never killed.
     1. Turn off misc:focus_on_activate, so reopened apps don't yank focus
        around. It is turned back on in a `finally`, and a timer inside
        Hyprland turns it back on anyway if Snapback dies before that.
@@ -20,14 +24,16 @@ Order matters:
        gets its view back afterwards. A workspace holding tiled windows the
        session doesn't know, or a shape no tree of splits makes, only has its
        windows swapped into the tiles nearest their saved spots.
-    6. Give focus back.
+    6. Show on each screen the workspace it showed when the session was saved.
+    7. Give focus back, to a window on a workspace that is on screen.
 
 A window always goes to its workspace first. Moving a window to a workspace
 that doesn't exist yet makes that workspace on the window's monitor, so it is
 then moved onto its owner monitor before anything else lands in it.
 
-Snapback never closes or kills a window. Extra windows an app opens by itself
-(a browser restoring its own session) are left where they are and reported.
+Snapback never kills a window, and closes them only in step 0. Extra windows
+an app opens by itself (a browser restoring its own session) are left where
+they are and reported.
 """
 
 from __future__ import annotations
@@ -133,6 +139,8 @@ class Report:
     reordered: list[str] = field(default_factory=list)  # workspaces whose tiles were swapped
     rebuilt: list[str] = field(default_factory=list)    # workspaces whose layout was rebuilt
     errors: list[str] = field(default_factory=list)  # problems outside any one window
+    closed: list[str] = field(default_factory=list)  # names of windows closed (switching)
+    kept: list[str] = field(default_factory=list)    # asked to close, still open
 
     def count(self, outcome: str) -> int:
         return sum(1 for r in self.results if r.outcome == outcome)
@@ -146,6 +154,8 @@ class Report:
             "reordered": self.reordered,
             "rebuilt": self.rebuilt,
             "errors": self.errors,
+            "closed": self.closed,
+            "kept": self.kept,
         }
 
 
@@ -177,8 +187,11 @@ class Lock:
 
 
 def run(plan: Plan, desk: Desk, timeout: float = 30.0, poll: float = 0.25,
-        log=lambda line: None, settle: float = 0.3) -> Report:
+        log=lambda line: None, settle: float = 0.3, close_others: bool = False,
+        close_wait: float = 5.0) -> Report:
     report = Report()
+    if close_others and plan.others:
+        _close_others(plan, desk, report, close_wait, poll, log)
     focused = desk.active_window()
     turned_off = desk.focus_on_activate()
     if turned_off:
@@ -186,6 +199,8 @@ def run(plan: Plan, desk: Desk, timeout: float = 30.0, poll: float = 0.25,
     try:
         _restore(plan, desk, report, timeout, poll, log)
         _arrange_tiles(desk, report, settle, log)
+        if plan.views:
+            _show_views(desk, plan.views, report)
     finally:
         if turned_off:
             try:
@@ -194,6 +209,28 @@ def run(plan: Plan, desk: Desk, timeout: float = 30.0, poll: float = 0.25,
                 report.errors.append(f"couldn't turn focus_on_activate back on: {exc}")
         _refocus(desk, focused, plan, report)
     return report
+
+
+def _close_others(plan: Plan, desk: Desk, report: Report, wait: float, poll: float, log) -> None:
+    """Ask each window the session doesn't name to close, and wait a moment
+    for them to go."""
+    asked = {}
+    for other in plan.others:
+        try:
+            desk.dispatch("window.close", window=f"address:{other['address']}")
+            asked[other["address"]] = other["name"]
+            log(f"asked {other['name']} to close")
+        except hypr.HyprError as exc:
+            report.errors.append(f"couldn't close {other['name']}: {exc}")
+    deadline = desk.now() + wait
+    while True:
+        open_now = {c["address"] for c in desk.clients()}
+        left = [a for a in asked if a in open_now]
+        if not left or desk.now() >= deadline:
+            break
+        desk.sleep(poll)
+    report.closed = [name for a, name in asked.items() if a not in left]
+    report.kept = [asked[a] for a in left]
 
 
 def _restore(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float, log) -> None:
@@ -464,8 +501,16 @@ def _place(desk: Desk, step: WindowStep, address: str, log) -> Result:
 
 
 def _refocus(desk: Desk, focused: str | None, plan: Plan, report: Report) -> None:
-    """Back to the window that had focus, or the session's last-used one."""
-    present = {c["address"] for c in desk.clients()}
+    """Back to the window that had focus, or the session's last-used one, but
+    only to a window on screen: focusing one on a hidden workspace would
+    switch its screen away from the view just restored."""
+    shown = set()
+    for m in desk.monitors():
+        shown.add(m["activeWorkspace"]["name"])
+        special = (m.get("specialWorkspace") or {}).get("name")
+        if special:
+            shown.add(special)
+    present = {c["address"] for c in desk.clients() if c["workspace"]["name"] in shown}
     target = focused if focused in present else None
     if target is None:
         # Windows are saved most recently focused first.

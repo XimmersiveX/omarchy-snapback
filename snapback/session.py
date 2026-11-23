@@ -84,6 +84,8 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
         ))
     saved.sort(key=lambda s: (s.window.focus < 0, s.window.focus))
 
+    active = {m["name"]: (m.get("activeWorkspace") or {}).get("id")
+              for m in source.snapshot["monitors"]}
     monitors = []
     for m in source.monitors():
         monitors.append({
@@ -93,6 +95,7 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
             "scale": m.scale,
             "transform": m.transform,
             "block": source.workspaces.blocks.get(m.identity),
+            "view": view(source, m.identity, active.get(m.name)),
         })
 
     return {
@@ -103,6 +106,19 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
         "monitors": monitors,
         "windows": [s.to_dict() for s in saved],
     }
+
+
+def view(source: Source, identity: str, workspace_id: int | None) -> dict | None:
+    """The workspace a screen shows, as its slot when it is one of the screen's
+    own (Omarchy), else as its number."""
+    if not workspace_id or workspace_id < 1:
+        return None
+    owner = source.workspaces.owner(workspace_id)
+    if owner and owner[0] == identity:
+        return {"slot": owner[1]}
+    if not source.workspaces.found:
+        return {"workspace": str(workspace_id)}
+    return None  # showing another screen's workspace (merged while it is unplugged)
 
 
 def restorable(session: dict) -> int:

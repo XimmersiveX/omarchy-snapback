@@ -67,11 +67,29 @@ Panel {
 
   // The panel closes first: a restore moves focus around and puts it back on
   // the window that had it, which the open panel would otherwise hold.
-  function restore(name) {
+  function restore(name, closeOthers) {
     if (snap.busy) return
     snap.flash(strings.t("restore.started").arg(Model.sessionTitle(name, strings.t)))
+    switchName = ""
     root.close()
-    snap.restore(name)
+    snap.restore(name, closeOthers === true)
+  }
+
+  // "Switch to": restore a session and close the windows it doesn't name,
+  // after showing which. With nothing to close it is a plain restore.
+  property string switchName: ""
+  property var switchOthers: []
+  function switchTo(name) { snap.preview(name) }
+  function confirmSwitch() { if (switchName !== "") restore(switchName, true) }
+  function cancelSwitch() { switchName = "" }
+
+  Connections {
+    target: snap
+    function onPreviewReady(name, others) {
+      if (others.length === 0) { root.restore(name, false); return }
+      root.switchOthers = others
+      root.switchName = name
+    }
   }
 
   function save(text) {
@@ -102,6 +120,7 @@ Panel {
   implicitHeight: button.implicitHeight
 
   onOpenedChanged: if (opened) {
+    switchName = ""
     cursorActive = false
     rowIndex = 0
     nowMs = Date.now()
@@ -186,17 +205,45 @@ Panel {
         return null
       }
 
+      // While the switch confirmation is up, the keys answer it.
       onMoveRequested: function (dx, dy) {
+        if (switchConfirm.opened) { if (dx !== 0) switchConfirm.selectedIndex = switchConfirm.selectedIndex === 0 ? 1 : 0; return }
         if (!root.cursorActive) { root.cursorActive = true; return }
         root.moveCursor(dy)
       }
-      onActivateRequested: if (root.cursorActive) root.activate(root.currentRow)
-      onDeleteRequested: if (root.cursorActive) root.deleteCurrent()
-      onCloseRequested: root.close()
-      onTabRequested: function (direction) { root.switchPanel(direction) }
+      onActivateRequested: {
+        if (switchConfirm.opened) {
+          if (switchConfirm.selectedIndex === 0) root.cancelSwitch()
+          else root.confirmSwitch()
+        } else if (root.cursorActive) root.activate(root.currentRow)
+      }
+      onDeleteRequested: if (root.cursorActive && !switchConfirm.opened) root.deleteCurrent()
+      onCloseRequested: switchConfirm.opened ? root.cancelSwitch() : root.close()
+      onTabRequested: function (direction) {
+        if (switchConfirm.opened) switchConfirm.selectedIndex = switchConfirm.selectedIndex === 0 ? 1 : 0
+        else root.switchPanel(direction)
+      }
       onTextKey: function (t) {
-        if (t === "r" || t === "R") snap.refresh()
+        if (switchConfirm.opened) return
+        if ((t === "w" || t === "W") && root.currentRow.indexOf("session:") === 0)
+          root.switchTo(root.currentRow.slice(8))
+        else if (t === "r" || t === "R") snap.refresh()
         else if (t === "s" || t === "S") { root.setRowCursor("save"); saveField.forceActiveFocus() }
+      }
+
+      ConfirmDialog {
+        id: switchConfirm
+        anchors.fill: parent
+        z: 10
+        opened: root.switchName !== ""
+        onOpenedChanged: if (opened) selectedIndex = 1
+        message: root.switchName === "" ? ""
+          : strings.t("switch.confirm").arg(Model.othersLine(root.switchOthers, 3, strings.t))
+              .arg(Model.sessionTitle(root.switchName, strings.t))
+        confirmText: strings.t("switch.confirmButton")
+        fontFamily: root.fontFamily
+        onCanceled: root.cancelSwitch()
+        onConfirmed: root.confirmSwitch()
       }
 
       Flickable {
@@ -372,6 +419,7 @@ Panel {
 
   function restoreSummary(r) {
     var parts = [strings.tn("restore.back", r.back).arg(r.back)]
+    if (r.closed > 0) parts.push(strings.tn("restore.closed", r.closed).arg(r.closed))
     if (r.misplaced > 0) parts.push(strings.tn("restore.misplaced", r.misplaced).arg(r.misplaced))
     return parts.join(" · ") + " · " + root.when(r.at)
   }
@@ -400,6 +448,12 @@ Panel {
       visible: r !== null && (r.back > 0 || r.errors.length === 0)
       text: r ? root.restoreSummary(r) : ""
       color: root.foreground
+    }
+
+    PlainLine {
+      visible: r !== null && r.kept.length > 0
+      text: r ? strings.t("restore.kept").arg(r.kept.join(", ")) : ""
+      color: root.urgent
     }
 
     PlainLine {
@@ -496,6 +550,18 @@ Panel {
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
         }
+      }
+
+      PanelActionButton {
+        visible: !session.error
+        iconText: Model.GLYPH.switchTo
+        tooltipText: strings.t("session.switchHint")
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        enabled: !snap.busy
+        Layout.alignment: Qt.AlignVCenter
+        onHovered: function (on) { if (on) root.setRowCursor(sessionRow.rowId) }
+        onClicked: root.switchTo(session.name)
       }
 
       PanelActionButton {

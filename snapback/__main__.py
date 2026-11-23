@@ -2,7 +2,7 @@
 
     python -m snapback inspect [--json] [--from DIR]
     python -m snapback save [NAME] [--dry-run] [--json] [--force]
-    python -m snapback restore [NAME] [--dry-run] [--json] [--at-login] [--notify] [--file PATH] [--from DIR] [--timeout S]
+    python -m snapback restore [NAME] [--dry-run] [--json] [--close-others] [--at-login] [--notify] [--file PATH] [--from DIR] [--timeout S]
     python -m snapback delete NAME
     python -m snapback watch [--verbose]
     python -m snapback login
@@ -118,25 +118,25 @@ def cmd_restore(args: argparse.Namespace) -> int:
     source = Source.from_dir(Path(args.source)) if args.source else Source.live()
     terminal = apps.default_terminal()
     result = plan.build(saved, source, resolver.entries, resolver.is_never, terminal,
-                        name=path.stem, loose=args.at_login)
+                        name=path.stem)
     if args.dry_run:
         if args.json:
             print(json.dumps(result.to_dict(), indent=2))
         else:
-            show_plan(result, source)
+            show_plan(result, source, args.close_others)
         return 0
 
     trigger = "login" if args.at_login else "manual"
     with restore.Lock():
         log = (lambda line: None) if args.json else (lambda line: print(f"  {line}"))
         try:
-            report = restore.run(result, restore.LiveDesk(), timeout=args.timeout, log=log)
+            report = restore.run(result, restore.LiveDesk(), timeout=args.timeout, log=log,
+                                 close_others=args.close_others)
         except (restore.RestoreError, hypr.HyprError) as exc:
             status.record_restore(status.restore_record(path.stem, trigger, error=str(exc)))
             raise
     # Check: planned again now, everything should already be in place.
-    after = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal,
-                       loose=args.at_login)
+    after = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal)
     off = [w for w in after.windows if w.action not in ("in-place", "skip", "problem")]
     status.record_restore(status.restore_record(
         path.stem, trigger, report.to_dict(), check=[w.to_dict() for w in off]))
@@ -151,6 +151,10 @@ def cmd_restore(args: argparse.Namespace) -> int:
 
 def show_report(report: restore.Report, off: list[plan.WindowStep]) -> None:
     print()
+    for name in report.closed:
+        print(f"  ok    closed {name}")
+    for name in report.kept:
+        print(f"  note  {name} is still open (it may be asking to save something)")
     for r in report.results:
         mark = {"placed": "ok  ", "in-place": "ok  ", "failed": "FAIL", "skipped": "skip",
                 "unrestorable": "!!  "}[r.outcome]
@@ -178,7 +182,7 @@ def show_report(report: restore.Report, off: list[plan.WindowStep]) -> None:
         print("Check: every restored window is where it belongs.")
 
 
-def show_plan(result: plan.Plan, source: Source) -> None:
+def show_plan(result: plan.Plan, source: Source, close_others: bool = False) -> None:
     connector = {m.identity: m.name for m in source.monitors()}
     print(f"Restore plan for {result.session!r}"
           + (f", saved {result.saved_at}" if result.saved_at else ""))
@@ -223,14 +227,25 @@ def show_plan(result: plan.Plan, source: Source) -> None:
         for note in w.notes:
             print(f"            {note}")
 
+    if close_others and result.others:
+        print()
+        print(f"Close first ({len(result.others)})")
+        for other in result.others:
+            print(f"  close {other['name']}  on ws {other['workspace']}  ({other['title'][:60]})")
+    if result.views:
+        print()
+        print("Screens: " + ", ".join(f"{m} shows ws {ws}" for m, ws in sorted(result.views.items())))
+
     parts = [f"{result.count('launch')} to open", f"{result.count('move')} to move",
              f"{result.count('in-place')} already in place"]
     for action, label in (("skip", "skipped"), ("problem", "can't be restored")):
         if result.count(action):
             parts.append(f"{result.count(action)} {label}")
     print()
+    left = result.untouched - (len(result.others) if close_others else 0)
     print("Dry run: " + ", ".join(parts) + "."
-          + (f" {result.untouched} other open window(s) left alone." if result.untouched else ""))
+          + (f" {len(result.others)} to close." if close_others and result.others else "")
+          + (f" {left} other open window(s) left alone." if left else ""))
 
 
 def autosaver(name: str = session.DEFAULT_NAME):
@@ -295,7 +310,7 @@ def cmd_login(args: argparse.Namespace) -> int:
             resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
             terminal = apps.default_terminal()
             result = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal,
-                                name="last", loose=True)
+                                name="last")
             with restore.Lock():
                 report = restore.run(result, restore.LiveDesk(), timeout=args.timeout)
             print(json.dumps(report.to_dict()), flush=True)
@@ -450,11 +465,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--file", metavar="PATH", help="read the session from this file instead")
     p.add_argument("--from", dest="source", metavar="DIR", help="plan against a recorded fixture")
     p.add_argument("--at-login", action="store_true",
-                   help="any open window of an app may take a saved one's place (right after "
-                        "login, when open windows are ones apps reopened themselves)")
+                   help="record it as the restore at login")
     p.add_argument("--timeout", type=float, default=30.0, metavar="S",
                    help="seconds to wait for reopened apps' windows (default 30)")
     p.add_argument("--notify", action="store_true", help="say how it went in a desktop notification")
+    p.add_argument("--close-others", action="store_true",
+                   help="switch to the session: first ask open windows it doesn't name to close "
+                        "(as their close button does; unsaved work can still ask)")
     p.set_defaults(func=cmd_restore)
 
     p = sub.add_parser("delete", help="delete a saved session")

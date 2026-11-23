@@ -15,7 +15,10 @@
   "sessions.none": "Nothing saved yet",
   "session.last": "Latest autosave",
   "session.previous": "Before this login",
-  "session.windows": { "one": "%1 window", "other": "%1 windows" },
+  "session.windows": {
+    "one": "%1 window",
+    "other": "%1 windows"
+  },
   "session.meta": "%1 · %2",
   "session.unreadable": "Can't be read: %1",
   "session.restoreHint": "Put these windows back",
@@ -29,15 +32,37 @@
   "deleted": "Deleted \"%1\"",
   "restore.title.login": "Last restore, at login",
   "restore.title.manual": "Last restore",
-  "restore.back": { "one": "%1 window back", "other": "%1 windows back" },
-  "restore.problems": { "one": "%1 couldn't come back: %2", "other": "%1 couldn't come back: %2" },
-  "restore.misplaced": { "one": "%1 still out of place", "other": "%1 still out of place" },
+  "restore.back": {
+    "one": "%1 window back",
+    "other": "%1 windows back"
+  },
+  "restore.problems": {
+    "one": "%1 couldn't come back: %2",
+    "other": "%1 couldn't come back: %2"
+  },
+  "restore.misplaced": {
+    "one": "%1 still out of place",
+    "other": "%1 still out of place"
+  },
   "restore.failed": "Restore failed: %1",
   "restore.started": "Restoring \"%1\"…",
   "time.justNow": "just now",
-  "time.minutesAgo": { "one": "%1 min ago", "other": "%1 min ago" },
+  "time.minutesAgo": {
+    "one": "%1 min ago",
+    "other": "%1 min ago"
+  },
   "time.today": "today %1",
   "time.yesterday": "yesterday %1",
   "time.onDay": "%1 %2",
-  "error.generic": "Snapback didn't answer"
+  "error.generic": "Snapback didn't answer",
+  "session.switchHint": "Switch to this session: close the other windows, then put these back",
+  "switch.confirm": "Close %1, then put back \"%2\"? Apps with unsaved work can still ask first.",
+  "switch.confirmButton": "Switch",
+  "others.more": "%1 and %2 more",
+  "others.times": "%1 (×%2)",
+  "restore.closed": {
+    "one": "%1 window closed",
+    "other": "%1 windows closed"
+  },
+  "restore.kept": "Still open: %1 (it may be asking to save)"
 }

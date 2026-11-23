@@ -68,6 +68,8 @@ def restore_record(name: str, trigger: str, report: dict | None = None,
         "problems": problems,
         "errors": errors,
         "misplaced": len(check or []),
+        "closed": len((report or {}).get("closed", [])),
+        "kept": list((report or {}).get("kept", [])),
         "report": report,
     }
 

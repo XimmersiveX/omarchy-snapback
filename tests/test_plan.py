@@ -212,34 +212,53 @@ class WhichWindowIsWhich(unittest.TestCase):
         _, w = make(saved_scene(), desk("tv-unplugged"))
         self.assertEqual(w["com.t3tools.T3Code"].matched_by, "window")
 
-    def test_new_session_matches_titles_only(self):
+    def test_new_session_matches_titles_then_any_window_of_the_app(self):
         _, w = make(saved_scene(), desk("tv-unplugged", instance="after-reboot"))
-        self.assertEqual(w["com.t3tools.T3Code"].action, "launch")
         self.assertEqual(w["chromium"].matched_by, "title")  # same scrubbed title in both
+        # T3 Code's title changed and its window ids mean nothing after a
+        # reboot, but it is open: it is moved, not opened a second time.
+        t3 = w["com.t3tools.T3Code"]
+        self.assertEqual((t3.action, t3.matched_by), ("move", "app"))
 
     def test_unknown_session_never_counts_as_the_same_one(self):
         session = saved_scene()
         session["hyprland_instance"] = None
         _, w = make(session, desk("tv-unplugged", instance=None))
-        self.assertEqual(w["com.t3tools.T3Code"].action, "launch")
+        self.assertEqual(w["com.t3tools.T3Code"].matched_by, "app")
 
-    def test_at_login_any_window_of_the_app_will_do(self):
-        _, w = make(saved_scene(), desk("tv-unplugged", instance="after-reboot"), loose=True)
-        t3 = w["com.t3tools.T3Code"]
-        self.assertEqual((t3.action, t3.matched_by), ("move", "app"))
-
-    def test_a_window_opened_after_the_save_is_never_taken(self):
-        # The live incident: the saved Chromium window was closed, another one
-        # (not in the session) was open, and a by-hand restore moved it.
+    def test_an_open_window_of_the_app_is_used_before_launching(self):
+        # The saved Chromium window was closed and another one is open, on
+        # another tab: it is moved into the saved one's place.
         session = saved_scene()
         session["windows"] = [w for w in session["windows"] if w["app"] == "chromium"]
         source = desk("tv-on-scene")
         client = next(c for c in source.snapshot["clients"] if c["initialClass"] == "chromium")
         client["stableId"], client["title"] = "1800ffff", "Something else"
         result, w = make(session, source)
-        self.assertEqual(w["chromium"].action, "launch")
-        self.assertIsNone(w["chromium"].window)
-        self.assertEqual(result.untouched, len(source.snapshot["clients"]))
+        self.assertEqual((w["chromium"].window, w["chromium"].matched_by), (client["address"], "app"))
+        self.assertEqual(result.untouched, len(source.snapshot["clients"]) - 1)
+
+    def test_the_window_already_in_place_is_the_one_used(self):
+        session = saved_scene()
+        session["windows"] = [w for w in session["windows"] if w["app"] == "chromium"]
+        saved = session["windows"][0]
+        saved["title"], saved["stable_id"] = "old tab", None
+        source = desk("tv-on-scene")
+        client = next(c for c in source.snapshot["clients"] if c["initialClass"] == "chromium")
+        elsewhere = dict(copy.deepcopy(client), address="0xfeed", stableId="1",
+                         workspace={"id": 5, "name": "5"}, focusHistoryID=0)
+        client["focusHistoryID"] = 3  # used less recently than the one elsewhere
+        source.snapshot["clients"].append(elsewhere)
+        _, w = make(session, source)
+        self.assertEqual((w["chromium"].window, w["chromium"].action), (client["address"], "in-place"))
+
+    def test_one_open_window_fills_only_one_saved_one(self):
+        session = saved_scene()
+        a = next(w for w in session["windows"] if w["app"] == "chromium")
+        session["windows"].append(dict(a, title="second", stable_id=None))
+        result, _ = make(session, desk("tv-on-scene"))
+        chromium = sorted(w.action for w in result.windows if w.app == "chromium")
+        self.assertEqual(chromium, ["in-place", "launch"])
 
     def test_the_same_window_beats_a_title_match(self):
         session = saved_scene()
@@ -321,3 +340,57 @@ class Changes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SwitchingAndViews(unittest.TestCase):
+    """What switching to a session closes, and what each screen shows."""
+
+    def test_others_are_the_open_windows_the_session_does_not_name(self):
+        session = saved_scene()
+        session["windows"] = [w for w in session["windows"] if w["app"] == "chromium"]
+        source = desk("tv-on-scene")
+        result, w = make(session, source)
+        addresses = {o["address"] for o in result.others}
+        self.assertNotIn(w["chromium"].window, addresses)
+        regular = [c for c in source.snapshot["clients"]
+                   if c["workspace"]["id"] > 0 and c["address"] != w["chromium"].window]
+        self.assertEqual(addresses, {c["address"] for c in regular})
+        # A window on a special workspace (the scratchpad) is never closed.
+        self.assertTrue(any(c["workspace"]["id"] < 0 for c in source.snapshot["clients"]))
+        self.assertFalse(any(o["workspace"].startswith("special:") for o in result.others))
+        t3 = next(o for o in result.others if o["app"] == "com.t3tools.T3Code")
+        self.assertEqual(t3["name"], "t3code.desktop")  # the entry's name (ENTRIES names = ids)
+
+    def test_nothing_to_close_when_everything_is_in_the_session(self):
+        result, _ = make(saved_scene(), desk("tv-on-scene"))
+        self.assertEqual(result.others, [])
+
+    def test_empty_session_closes_every_regular_window(self):
+        session = dict(saved_scene(), windows=[])
+        source = desk("tv-on-scene")
+        result, _ = make(session, source)
+        self.assertEqual(len(result.others),
+                         sum(1 for c in source.snapshot["clients"] if c["workspace"]["id"] > 0))
+
+    def test_views_come_back_by_slot_on_each_screen(self):
+        result, _ = make(saved_scene(), desk("tv-on-scene"))
+        self.assertEqual(result.views, {"DP-2": "12", "DP-3": "22", "HDMI-A-1": "1"})
+
+    def test_views_follow_omarchy_blocks_and_skip_unplugged_screens(self):
+        result, _ = make(saved_scene(), desk("tv-unplugged"))
+        self.assertEqual(result.views, {"DP-2": "12", "DP-3": "22"})  # the TV isn't there
+
+    def test_sessions_without_views_show_what_they_show(self):
+        session = saved_scene()
+        for m in session["monitors"]:
+            m.pop("view")
+        result, _ = make(session, desk("tv-on-scene"))
+        self.assertEqual(result.views, {})
+
+    def test_app_name(self):
+        entries = {"t3code.desktop": DesktopEntry("t3code.desktop", "T3 Code", "x", "com.t3tools.T3Code",
+                                                  False, False, Path("t")),
+                   "foot.desktop": DesktopEntry("foot.desktop", "Foot", "x", None, False, True, Path("f"))}
+        self.assertEqual(plan.app_name("com.t3tools.T3Code", entries), "T3 Code")
+        self.assertEqual(plan.app_name("foot", entries), "Foot")
+        self.assertEqual(plan.app_name("weird", entries), "weird")

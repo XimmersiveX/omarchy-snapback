@@ -152,3 +152,22 @@ class Config(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Views(unittest.TestCase):
+    def test_each_screen_records_the_slot_it_shows(self):
+        views = {m["connector"]: m["view"] for m in scene()["monitors"]}
+        self.assertEqual(views, {"DP-2": {"slot": 2}, "DP-3": {"slot": 2}, "HDMI-A-1": {"slot": 1}})
+
+    def test_without_omarchy_the_number_is_kept(self):
+        from snapback.session import view
+        source = Source.from_dir(FIXTURES / "tv-on-scene")
+        source.workspaces = type(source.workspaces)()  # no blocks file
+        self.assertEqual(view(source, "any", 7), {"workspace": "7"})
+        self.assertIsNone(view(source, "any", -98))  # special
+        self.assertIsNone(view(source, "any", None))
+
+    def test_a_screen_showing_another_screens_workspace_records_nothing(self):
+        from snapback.session import view
+        source = Source.from_dir(FIXTURES / "tv-on-scene")
+        self.assertIsNone(view(source, "LG Electronics LG TV SSCR2 SERIAL3", 12))

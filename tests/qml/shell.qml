@@ -100,7 +100,24 @@ ShellRoot {
       status({ watching: false })
       check("autosave off", barPanel.autosaveLine(), "Autosave isn't running")
 
-      console.log(failures === 0 ? "ALL OK" : failures + " FAILED")
+      console.log("switch to")
+      status({})
+      service.previewReady("work", [{ name: "T3 Code", title: "a" }, { name: "Chromium", title: "b" }])
+      check("asks before closing anything", barPanel.switchName, "work")
+      check("names what it would close", panelContent().children.filter(function (c) { return c.message !== undefined })[0].message.indexOf("T3 Code, Chromium") >= 0, true)
+      barPanel.cancelSwitch()
+      check("cancel asks nothing more", barPanel.switchName, "")
+      check("and runs nothing", service.restoringName, "")
+      service.previewReady("work", [{ name: "T3 Code", title: "a" }])
+      barPanel.confirmSwitch()
+      check("confirm restores the session", service.restoringName, "work")
+      check("closing the others", service.restoreCommand.indexOf("--close-others") >= 0, true)
+      settle(function () {
+        service.previewReady("previous", [])
+        check("with nothing to close it just restores", service.restoringName, "previous")
+        check("without closing", service.restoreCommand.indexOf("--close-others"), -1)
+        console.log(failures === 0 ? "ALL OK" : failures + " FAILED")
+      })
     }
 
     // Lets the `true` standing in for setup exit, as the real one would.

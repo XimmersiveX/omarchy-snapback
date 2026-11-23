@@ -40,9 +40,14 @@ def unit_command(command: str, root: Path | None = None) -> list[str]:
 
 
 def hook_text(root: Path | None = None) -> str:
+    root = root or package_root()
+    # Removing the plugin deletes its folder but not this hook (Omarchy runs
+    # no plugin code on removal), so the hook removes itself once Snapback is gone.
     return ("#!/bin/bash\n"
             "# Snapback: put the last session back after login, then keep it saved.\n"
             f"{MARKER}; remove it with `snapback setup --remove`.\n"
+            "# Once Snapback itself has been removed, this file deletes itself.\n"
+            f'[[ -d {shlex.quote(str(root / "snapback"))} ]] || {{ rm -f -- "$0"; exit 0; }}\n'
             + shlex.join(unit_command("login", root)) + "\n")
 
 

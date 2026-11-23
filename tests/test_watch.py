@@ -1,6 +1,8 @@
 """The autosave watcher, the login hook, and the login summary."""
 
+import shlex
 import socket
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -176,6 +178,33 @@ class Hook(unittest.TestCase):
         self.assertTrue(setup.remove(self.path))
         self.assertFalse(self.path.exists())
         self.assertFalse(setup.remove(self.path))
+
+    def run_hook(self, root):
+        """Run the hook as Omarchy does (bash <file>), with a stand-in systemd-run."""
+        bin_dir = self.path.parent.parent / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        started = bin_dir / "started"
+        fake = bin_dir / "systemd-run"
+        fake.write_text(f"#!/bin/sh\necho \"$@\" > {shlex.quote(str(started))}\n")
+        fake.chmod(0o755)
+        setup.install(self.path, root)
+        env = {"PATH": f"{bin_dir}:/usr/bin:/bin"}
+        result = subprocess.run(["bash", str(self.path)], env=env, capture_output=True, text=True)
+        return result, started
+
+    def test_hook_starts_snapback_while_it_is_installed(self):
+        root = self.path.parent.parent / "plugin dir"
+        (root / "snapback").mkdir(parents=True)
+        result, started = self.run_hook(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("snapback login", started.read_text())
+        self.assertTrue(self.path.exists())
+
+    def test_hook_removes_itself_once_snapback_is_gone(self):
+        result, started = self.run_hook(self.path.parent.parent / "removed plugin")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(started.exists())
+        self.assertFalse(self.path.exists())
 
     def test_never_touches_a_hook_it_did_not_write(self):
         self.path.parent.mkdir(parents=True)

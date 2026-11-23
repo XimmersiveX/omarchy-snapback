@@ -15,6 +15,13 @@ laptop alone at a coffee shop) they aren't, so screens are matched by role:
       first. Screens left over fold into the main screen: their workspaces
       come after the main screen's own, in left-to-right order, as Omarchy
       does with an unplugged monitor's workspaces.
+
+Folding follows Omarchy by default (FOLD_OMARCHY): where Omarchy has already
+folded a missing screen's workspace (it remembers where each came from, until
+the next login), that screen's windows go into it, so Omarchy still sends them
+home when the screen is back. Snapback folds only what Omarchy hasn't, into
+workspaces nobody is using. FOLD_SNAPBACK always uses Snapback's order; then
+it's a setup, not Omarchy, that puts the windows home again.
 """
 
 from __future__ import annotations
@@ -28,32 +35,54 @@ from pathlib import Path
 from .geometry import Monitor, Rect
 from .omarchy import SLOTS
 
+FOLD_OMARCHY = "omarchy"
+FOLD_SNAPBACK = "snapback"
+
 
 def marks_path() -> Path:
     base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local/state")
     return Path(base) / "snapback" / "screens.json"
 
 
-def load_marks(path: Path | None = None) -> set[str]:
-    """Identities of the monitors marked as a main screen (one per place)."""
+def _load(path: Path | None) -> dict:
     try:
         data = json.loads((path or marks_path()).read_text())
     except (OSError, json.JSONDecodeError):
-        return set()
-    main = data.get("main") if isinstance(data, dict) else None
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def load_marks(path: Path | None = None) -> set[str]:
+    """Identities of the monitors marked as a main screen (one per place)."""
+    main = _load(path).get("main")
     return {m for m in main if isinstance(m, str)} if isinstance(main, list) else set()
+
+
+def load_fold(path: Path | None = None) -> str:
+    fold = _load(path).get("fold")
+    return fold if fold in (FOLD_OMARCHY, FOLD_SNAPBACK) else FOLD_OMARCHY
 
 
 def mark_main(identity: str, connected: list[str], path: Path | None = None) -> None:
     """Make `identity` the main screen of the place whose screens are `connected`:
     any other connected screen stops being main; marks from other places stay."""
+    _save({"main": sorted((load_marks(path) - set(connected)) | {identity})}, path)
+
+
+def set_fold(fold: str, path: Path | None = None) -> None:
+    if fold not in (FOLD_OMARCHY, FOLD_SNAPBACK):
+        raise ValueError(f"fold is {FOLD_OMARCHY!r} or {FOLD_SNAPBACK!r}")
+    _save({"fold": fold}, path)
+
+
+def _save(changes: dict, path: Path | None) -> None:
     path = path or marks_path()
-    marks = (load_marks(path) - set(connected)) | {identity}
+    data = {**_load(path), **changes}
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".screens.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as file:
-            file.write(json.dumps({"main": sorted(marks)}, indent=2) + "\n")
+            file.write(json.dumps(data, indent=2, sort_keys=True) + "\n")
         os.replace(tmp, path)
     except BaseException:
         try:
@@ -113,8 +142,15 @@ def _center_x(box: Rect) -> float:
     return box.x + box.w / 2
 
 
-def map_screens(session: dict, monitors: list[Monitor], marks: set[str]) -> Mapping:
-    """How the setup's screens land on today's `monitors`."""
+def map_screens(session: dict, monitors: list[Monitor], marks: set[str],
+                omarchy_folded: set[tuple[str, int]] = frozenset(),
+                in_use: set[tuple[str, int]] = frozenset()) -> Mapping:
+    """How the setup's screens land on today's `monitors`.
+
+    `omarchy_folded` are the saved (identity, slot) Omarchy has folded into a
+    workspace that exists now: those keep it, and aren't folded again.
+    `in_use` are today's (identity, slot) workspaces that exist: Snapback's own
+    folding passes over them rather than add to someone else's workspace."""
     mapping = Mapping()
     by_identity = {m.identity: m for m in monitors}
     saved = [m for m in session.get("monitors", []) if m.get("identity")]
@@ -149,14 +185,18 @@ def map_screens(session: dict, monitors: list[Monitor], marks: set[str]) -> Mapp
 
     # Whatever is left folds into the main screen, after its own workspaces.
     own_slots = {w.get("slot") for w in session.get("windows", [])
-                 if w.get("slot") and mapping.screen.get(w.get("monitor")) is main}
+                 if w.get("slot") and mapping.screen.get(w.get("monitor")) is main
+                 and (w.get("monitor"), w.get("slot")) not in omarchy_folded}
     next_slot = max(own_slots, default=0) + 1
     leftover = sorted((m for m in saved if m["identity"] not in mapping.screen),
                       key=lambda m: _center_x(saved_box(m)))
     for m in leftover:
         slots = sorted({w["slot"] for w in session.get("windows", [])
-                        if w.get("monitor") == m["identity"] and w.get("slot")})
+                        if w.get("monitor") == m["identity"] and w.get("slot")
+                        and (m["identity"], w["slot"]) not in omarchy_folded})
         for slot in slots:
+            while next_slot <= SLOTS and (main.identity, next_slot) in in_use:
+                next_slot += 1
             if next_slot > SLOTS:
                 break  # no room: these wait, as on an unplugged monitor
             mapping.folded[(m["identity"], slot)] = next_slot

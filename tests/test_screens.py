@@ -16,8 +16,9 @@ MIDDLE = "Ancor Communications Inc ROG PG279Q #SERIAL2"   # DP-3, the setup's ma
 RIGHT = "Ancor Communications Inc ROG PG279Q #SERIAL1"    # DP-2, portrait
 
 
-def place(*monitors, blocks=None):
-    """An empty desk with these monitors: (connector, identity, x, w, h)."""
+def place(*monitors, blocks=None, merged="", workspaces=()):
+    """A desk with these monitors: (connector, identity, x, w, h), no windows,
+    and these workspaces: (id, connector), with Omarchy's merged records."""
     base = desk("tv-on-scene")
     snap = copy.deepcopy(base.snapshot)
     template = snap["monitors"][0]
@@ -27,7 +28,8 @@ def place(*monitors, blocks=None):
         m.update(id=i, name=name, description=identity, x=x, y=0, width=w, height=h, scale=1,
                  transform=0, focused=i == 0, activeWorkspace={"id": 0, "name": ""})
         snap["monitors"].append(m)
-    snap["clients"], snap["workspaces"] = [], []
+    snap["clients"] = []
+    snap["workspaces"] = [{"id": n, "name": str(n), "monitor": c, "windows": 1} for n, c in workspaces]
     known = {TV: 0, RIGHT: 1, MIDDLE: 2}
     for i, (name, identity, *_rest) in enumerate(monitors):
         known.setdefault(identity, 3 + i)
@@ -35,12 +37,12 @@ def place(*monitors, blocks=None):
     text = "\n".join(f"{b}\t{name if any(n == name for n, *_x in monitors) else ''}\t{identity}"
                      for identity, b in known.items()
                      for name in [next((n for n, ident, *_x in monitors if ident == identity), "")])
-    return Source(snap, WorkspaceState.parse(text, ""), "elsewhere")
+    return Source(snap, WorkspaceState.parse(text, merged), "elsewhere")
 
 
-def build(source, session=None, marks=frozenset()):
+def build(source, session=None, marks=frozenset(), fold="omarchy"):
     result = plan.build(session or saved_scene(), source, ENTRIES, default_terminal="foot.desktop",
-                        is_dir=lambda path: True, marks=marks)
+                        is_dir=lambda path: True, marks=marks, fold=fold)
     return result, {w.app: w for w in result.windows}
 
 
@@ -143,6 +145,65 @@ class LaptopAlone(unittest.TestCase):
         mapping = screens.map_screens(session, place(self.LAPTOP).monitors(), set())
         self.assertEqual(max(mapping.folded.values()), 10)
 
+
+
+class FollowingOmarchy(unittest.TestCase):
+    """Unplugged in the same login: Omarchy has already folded the right
+    screen's slot 1 into the laptop's ws 32 and the middle screen's slot 2
+    into ws 33, and remembers where they came from."""
+
+    LAPTOP = ("eDP-1", "BOE 0x0BCA", 0, 1920, 1200)
+    MERGED = f"32\t11\t{RIGHT}\n33\t22\t{MIDDLE}\n"
+
+    def desk(self):
+        return place(self.LAPTOP, merged=self.MERGED, workspaces=[(32, "eDP-1"), (33, "eDP-1")])
+
+    def test_windows_join_the_workspaces_omarchy_folded(self):
+        result, w = build(self.desk())
+        self.assertEqual(w["chrome-__home_user_.local_share_omarchy-hotkeys_hotkeys.html-Default"].workspace,
+                         "32")
+        self.assertEqual(w["snapback-test-t1"].workspace, "33")
+        self.assertTrue(w["snapback-test-t1"].waiting)   # Omarchy takes it home on replug
+        self.assertFalse(result.park)
+
+    def test_the_rest_folds_into_workspaces_nobody_uses(self):
+        _, w = build(self.desk())
+        # Not folded by Omarchy: the TV's slots 1-2 and the right screen's
+        # slot 2. Slots 2 and 3 of the laptop are Omarchy's (ws 32, 33).
+        self.assertEqual(w["com.t3tools.T3Code"].workspace, "31")
+        self.assertEqual(w["snapback-test-f3"].workspace, "34")
+        self.assertEqual(w["snapback-test-f2"].workspace, "35")
+
+    def test_a_workspace_holding_the_setups_own_windows_is_free_to_use(self):
+        source = self.desk()
+        source.snapshot["workspaces"].append({"id": 31, "name": "31", "monitor": "eDP-1", "windows": 1})
+        source.snapshot["clients"].append({
+            "address": "0x1", "class": "com.t3tools.T3Code", "initialClass": "com.t3tools.T3Code",
+            "title": "T3", "mapped": True, "hidden": False, "floating": False, "monitor": 0,
+            "workspace": {"id": 31, "name": "31"}, "at": [0, 0], "size": [10, 10], "pid": 1,
+            "fullscreen": 0, "pinned": False, "grouped": [], "focusHistoryID": 0})
+        _, w = build(source)
+        self.assertEqual(w["com.t3tools.T3Code"].workspace, "31")      # its own window is there
+        source.snapshot["clients"][-1]["initialClass"] = "something-else"
+        _, w = build(source)
+        self.assertEqual(w["com.t3tools.T3Code"].workspace, "34")      # someone else's is
+
+    def test_snapbacks_order_ignores_omarchys_folds(self):
+        result, w = build(self.desk(), fold="snapback")
+        self.assertEqual(w["snapback-test-t1"].workspace, "32")   # main keeps slot 2
+        self.assertEqual(w["com.t3tools.T3Code"].workspace, "33")
+        self.assertTrue(result.park)
+
+    def test_the_fold_setting_is_kept(self):
+        path = Path(tempfile.mkdtemp()) / "screens.json"
+        self.assertEqual(screens.load_fold(path), "omarchy")    # the default
+        screens.mark_main("a", ["a"], path)
+        screens.set_fold("snapback", path)
+        self.assertEqual((screens.load_fold(path), screens.load_marks(path)), ("snapback", {"a"}))
+        screens.mark_main("b", ["a", "b"], path)
+        self.assertEqual(screens.load_fold(path), "snapback")
+        with self.assertRaises(ValueError):
+            screens.set_fold("sideways", path)
 
 class AtHome(unittest.TestCase):
     def test_with_the_main_screen_there_a_missing_screen_waits_as_before(self):

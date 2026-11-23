@@ -30,6 +30,7 @@ Panel {
     .concat(snap.sessions.map(function (s) { return "session:" + s.name }))
     .concat(["save"])
     .concat(snap.screens.length > 1 ? ["main"] : [])
+    .concat(["fold"])
   property int rowIndex: 0
   property bool cursorActive: false
   readonly property string currentRow: cursorActive ? rows[Math.min(rowIndex, rows.length - 1)] : ""
@@ -58,6 +59,7 @@ Panel {
     if (id === "switch") snap.toggleAtLogin()
     else if (id === "save" && saveField) saveField.forceActiveFocus()
     else if (id === "main") cycleMain()
+    else if (id === "fold") snap.setFold(snap.fold === "snapback" ? "omarchy" : "snapback")
     else if (id.indexOf("session:") === 0) switchTo(id.slice(8))
   }
 
@@ -206,6 +208,7 @@ Panel {
         if (id === "switch") return hero
         if (id === "save") return saveRow
         if (id === "main") return mainRow
+        if (id === "fold") return foldRow
         for (var i = 0; i < sessionColumn.children.length; i++) {
           var child = sessionColumn.children[i]
           if (child.rowId === id) return child
@@ -383,6 +386,68 @@ Panel {
                     keyCatcher.forceActiveFocus()
                     event.accepted = true
                   }
+                }
+              }
+            }
+
+            // How screens a setup has but this place doesn't fold into the
+            // main screen: Omarchy's way (it then takes them home on replug)
+            // or Snapback's order.
+            CursorSurface {
+              id: foldRow
+              width: parent.width
+              hasCursor: root.currentRow === "fold"
+              foreground: root.foreground
+              implicitHeight: foldLayout.implicitHeight + Style.spacing.rowPaddingX
+
+              MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onEntered: root.setRowCursor("fold")
+                onClicked: root.activate("fold")
+              }
+
+              RowLayout {
+                id: foldLayout
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Style.space(10)
+                anchors.rightMargin: Style.space(10)
+                spacing: Style.space(8)
+
+                ColumnLayout {
+                  Layout.fillWidth: true
+                  spacing: Style.space(1)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    Layout.fillWidth: true
+                    text: strings.t("fold.title")
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    elide: Text.ElideRight
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    Layout.fillWidth: true
+                    text: strings.t(snap.fold === "snapback" ? "fold.snapback" : "fold.omarchy")
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.WordWrap
+                  }
+                }
+
+                ToggleSwitch {
+                  checked: snap.fold === "snapback"
+                  hasCursor: false
+                  foreground: root.foreground
+                  Layout.alignment: Qt.AlignVCenter
+                  onToggled: root.activate("fold")
                 }
               }
             }

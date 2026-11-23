@@ -629,12 +629,23 @@ class Elsewhere(unittest.TestCase):
             if client["initialClass"] in ("chromium", "com.t3tools.T3Code"):
                 client["workspace"] = {"id": 22, "name": "22"}
                 client["monitor"] = next(m["id"] for m in self.source.snapshot["monitors"] if m["name"] == "DP-3")
-        self.plan = plan.build(json.loads(text), self.source, ENTRIES, default_terminal="foot.desktop",
-                               is_dir=lambda path: True)
+        self.session = json.loads(text)
+        self.plan = plan.build(self.session, self.source, ENTRIES, default_terminal="foot.desktop",
+                               is_dir=lambda path: True, fold="snapback")
         self.fake = FakeDesk(self.source)
+
+    def test_following_omarchy_parks_nothing(self):
+        p = plan.build(self.session, self.source, ENTRIES, default_terminal="foot.desktop",
+                       is_dir=lambda path: True)
+        self.assertTrue(p.elsewhere)
+        self.assertFalse(p.park)
+        restore.run(p, self.fake)
+        first = next(c for c in self.fake.calls if c[0] == "window.move" and "workspace" in c[1])
+        self.assertNotEqual(first[1]["workspace"], restore.STAGING)
 
     def test_windows_to_move_are_parked_first_and_none_stay_parked(self):
         self.assertTrue(self.plan.elsewhere)
+        self.assertTrue(self.plan.park)
         moving = {s.window for s in self.plan.windows if s.action == "move"}
         self.assertTrue(moving)
         restore.run(self.plan, self.fake)

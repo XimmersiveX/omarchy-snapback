@@ -147,7 +147,8 @@ def hook_state(path: Path, marker: str) -> str:
 
 def snapshot(*, hook: str, hook_path: Path, watching: bool, restoring: bool, version: str,
              entries: dict[str, DesktopEntry], directory: Path | None = None,
-             report: Path | None = None, screens: list[dict] | None = None) -> dict:
+             report: Path | None = None, screens: list[dict] | None = None,
+             fold: str = "omarchy") -> dict:
     return {
         "version": version,
         "atLogin": hook,
@@ -157,4 +158,5 @@ def snapshot(*, hook: str, hook_path: Path, watching: bool, restoring: bool, ver
         "sessions": list_sessions(entries, directory),
         "lastRestore": last_restore(report),
         "screens": screens or [],
+        "fold": fold,
     }

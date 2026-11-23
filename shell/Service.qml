@@ -24,6 +24,7 @@ Item {
   property var sessions: []
   property var lastRestore: null
   property var screens: []
+  property string fold: "omarchy"   // or "snapback": how missing screens fold
   property string hookPath: ""
 
   // The switch shows what was asked for until a status read agrees (-1: follow
@@ -63,6 +64,7 @@ Item {
     if (!_same(sessions, parsed.sessions)) sessions = parsed.sessions
     if (!_same(lastRestore, parsed.lastRestore)) lastRestore = parsed.lastRestore
     if (!_same(screens, parsed.screens)) screens = parsed.screens
+    if (!foldProcess.running) fold = parsed.fold
     if (_desiredAtLogin !== -1 && !setupProcess.running && atLoginOn === (atLogin === "on"))
       _desiredAtLogin = -1
   }
@@ -110,6 +112,13 @@ Item {
     if (mainProcess.running) return
     mainProcess.command = cli(["screens", "--main", connector])
     mainProcess.running = true
+  }
+
+  function setFold(value) {
+    if (foldProcess.running || value === fold) return
+    fold = value
+    foldProcess.command = cli(["screens", "--fold", value])
+    foldProcess.running = true
   }
 
   function remove(name) {
@@ -165,6 +174,16 @@ Item {
       var line = Model.errorLine(restoreErr.text)
       if (exitCode !== 0 && line !== "") root.flash(root.t("restore.failed").arg(line), true)
       root.restoringName = ""
+      root.refresh()
+    }
+  }
+
+  Process {
+    id: foldProcess
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { id: foldErr; waitForEnd: true }
+    onExited: function (exitCode) {
+      if (exitCode !== 0) root.flash(Model.errorLine(foldErr.text) || root.t("error.generic"), true)
       root.refresh()
     }
   }

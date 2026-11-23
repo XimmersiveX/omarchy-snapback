@@ -8,7 +8,7 @@
     python -m snapback login
     python -m snapback setup [--remove]
     python -m snapback status [--json]
-    python -m snapback screens [--main SCREEN] [--json]
+    python -m snapback screens [--main SCREEN] [--fold omarchy|snapback] [--json]
     python -m snapback doctor
 """
 
@@ -117,9 +117,9 @@ def cmd_restore(args: argparse.Namespace) -> int:
     resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
     source = Source.from_dir(Path(args.source)) if args.source else Source.live()
     terminal = apps.default_terminal()
-    marks = screens.load_marks()
+    marks, fold = screens.load_marks(), screens.load_fold()
     result = plan.build(saved, source, resolver.entries, resolver.is_never, terminal,
-                        name=path.stem, marks=marks)
+                        name=path.stem, marks=marks, fold=fold)
     if args.dry_run:
         if args.json:
             print(json.dumps(result.to_dict(), indent=2))
@@ -144,7 +144,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
             raise
     # Check: planned again now, everything should already be in place.
     after = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal,
-                       marks=marks)
+                       marks=marks, fold=fold)
     off = [w for w in after.windows if w.action not in ("in-place", "skip", "problem")]
     status.record_restore(status.restore_record(
         path.stem, trigger, report.to_dict(), check=[w.to_dict() for w in off]))
@@ -335,7 +335,7 @@ def cmd_login(args: argparse.Namespace) -> int:
             resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
             terminal = apps.default_terminal()
             result = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal,
-                                name="last", marks=screens.load_marks())
+                                name="last", marks=screens.load_marks(), fold=screens.load_fold())
             with restore.Lock():
                 report = restore.run(result, restore.LiveDesk(), timeout=args.timeout)
             print(json.dumps(report.to_dict()), flush=True)
@@ -406,6 +406,7 @@ def current_status() -> dict:
         version=__version__,
         entries=apps.load_entries(apps.data_dirs()),
         screens=screen_list(),
+        fold=screens.load_fold(),
     )
 
 
@@ -452,6 +453,8 @@ def screen_list(source: Source | None = None) -> list[dict]:
 
 
 def cmd_screens(args: argparse.Namespace) -> int:
+    if args.fold:
+        screens.set_fold(args.fold)
     if args.main:
         found = [s for s in screen_list() if args.main in (s["connector"], s["identity"])]
         if not found:
@@ -460,11 +463,16 @@ def cmd_screens(args: argparse.Namespace) -> int:
         screens.mark_main(found[0]["identity"], [s["identity"] for s in screen_list()])
     listing = screen_list()
     if args.json:
-        print(json.dumps(listing, indent=2))
+        print(json.dumps({"screens": listing, "fold": screens.load_fold()}, indent=2))
         return 0
     for s in listing:
         main = "  main" + ("" if s["marked"] else " (guessed; mark it with --main)") if s["main"] else ""
         print(f"  {s['position']:<7} {s['connector']:<9} {s['identity']}{main}")
+    fold = screens.load_fold()
+    print()
+    print("Folding missing screens: " + ("follow Omarchy (Omarchy still takes windows home on replug)"
+                                         if fold == screens.FOLD_OMARCHY else
+                                         "Snapback's order (a setup takes windows home on replug)"))
     return 0
 
 
@@ -557,6 +565,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("screens", help="list the screens; mark the main one here (setups use it "
                                        "on other screens than they were saved on)")
     p.add_argument("--main", metavar="SCREEN", help="mark this screen (connector or name) as main")
+    p.add_argument("--fold", choices=(screens.FOLD_OMARCHY, screens.FOLD_SNAPBACK),
+                   help="away from a setup's screens: follow Omarchy's folding (default; Omarchy "
+                        "still takes windows home) or fold in Snapback's order")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_screens)
 

@@ -47,7 +47,7 @@ from .apps import TUI_ID, DesktopEntry, exec_args
 from .capture import CapturedWindow, Source, capture
 from .geometry import Monitor, Placement, Rect, project
 from .omarchy import SLOTS
-from .screens import Mapping, map_screens
+from .screens import FOLD_OMARCHY, Mapping, map_screens
 
 GEOMETRY_TOLERANCE = 2.0
 
@@ -113,6 +113,7 @@ class Plan:
     views: dict[str, str] = field(default_factory=dict)  # connector -> workspace it showed
     screens: list[dict] = field(default_factory=list)  # how each saved screen lands today
     elsewhere: bool = False           # the setup's main screen isn't here: screens matched by role
+    park: bool = False                # park windows before moving them (Snapback's own folding)
 
     def count(self, action: str) -> int:
         return sum(1 for w in self.windows if w.action == action)
@@ -151,7 +152,8 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
           never: Callable[[str], bool] = lambda text: False,
           default_terminal: str | None = None,
           is_dir: Callable[[str], bool] = os.path.isdir,
-          name: str = "", marks: set[str] | frozenset = frozenset()) -> Plan:
+          name: str = "", marks: set[str] | frozenset = frozenset(),
+          fold: str = FOLD_OMARCHY) -> Plan:
     """The plan for restoring `session` onto the desktop in `source`.
 
     `entries` are the apps installed now, `never` is the never-restore check
@@ -168,8 +170,21 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
 
     open_windows = capture(source)
     same_instance = bool(source.instance) and session.get("hyprland_instance") == source.instance
-    mapping = map_screens(session, monitors, set(marks))
-    targets = [_target(saved, state, by_identity, host, existing, mapping) for saved in session["windows"]]
+    follow = fold == FOLD_OMARCHY
+    omarchy_folded = {(identity, (original - 1) % SLOTS + 1)
+                      for current, (original, identity) in state.merged.items()
+                      if current in existing} if follow else set()
+    # Workspaces Snapback's own folding passes over: Omarchy's folded ones, and
+    # ones holding windows of apps the setup doesn't have (they stay).
+    setup_apps = {w["app"] for w in session["windows"]}
+    busy = {current for current in state.merged if current in existing}
+    busy |= {int(w.workspace) for w in open_windows if w.workspace.isdigit() and w.app not in setup_apps}
+    by_block = {block: identity for identity, block in state.blocks.items()}
+    in_use = {(by_block[(n - 1) // SLOTS], (n - 1) % SLOTS + 1) for n in busy
+              if (n - 1) // SLOTS in by_block} if follow else set()
+    mapping = map_screens(session, monitors, set(marks), omarchy_folded, in_use)
+    targets = [_target(saved, state, by_identity, host, existing, mapping, follow)
+               for saved in session["windows"]]
     matches = _match(session["windows"], open_windows, same_instance,
                      [t[0] if t else None for t in targets])
 
@@ -260,7 +275,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
     return Plan(name, session.get("saved_at"), sorted(workspace_steps.values(), key=lambda w: w.workspace),
                 steps, missing, len(open_windows) - len(taken), others,
                 _views(session, state, by_identity, mapping), _screens(session, mapping, by_identity),
-                mapping.elsewhere)
+                mapping.elsewhere, mapping.elsewhere and not follow)
 
 
 def app_name(app: str, entries: dict[str, DesktopEntry]) -> str:
@@ -320,8 +335,21 @@ def _existing_workspaces(source: Source) -> dict[int, str]:
     return {w["id"]: w["monitor"] for w in source.snapshot.get("workspaces", []) if w["id"] > 0}
 
 
+def _join_merged(owner: str, slot: int, state, existing: dict[int, str], host: Monitor | None):
+    """The workspace Omarchy merged this monitor's slot into, if it exists.
+
+    Making the original number instead would make Omarchy renumber the merged
+    one when the monitor returns. Only while it exists, though: a record
+    outlives its workspace, and Omarchy forgets the record as soon as that
+    number is created again, which would strand the windows."""
+    for current, (original, identity) in sorted(state.merged.items()):
+        if identity == owner and (original - 1) % SLOTS + 1 == slot and current in existing:
+            return str(current), existing.get(current) or (host.name if host else None), owner, slot, True
+    return None
+
+
 def _target(saved: dict, state, by_identity: dict[str, Monitor], host: Monitor | None,
-            existing: dict[int, str], mapping: Mapping | None = None
+            existing: dict[int, str], mapping: Mapping | None = None, follow: bool = True
             ) -> tuple[str, str | None, str | None, int | None, bool] | None:
     """(workspace, connector, owner identity, slot, waiting) for a saved window."""
     workspace = str(saved.get("workspace", ""))
@@ -341,6 +369,13 @@ def _target(saved: dict, state, by_identity: dict[str, Monitor], host: Monitor |
             return None
         return str(number), monitor.name, owner, slot, False
 
+    # Omarchy already folded this workspace: join it, so Omarchy still takes
+    # it home when the monitor is back.
+    if follow:
+        joined = _join_merged(owner, slot, state, existing, host)
+        if joined:
+            return joined
+
     # Elsewhere: the screen it goes to by role, or a slot folded into main.
     placed = mapping.place(owner, slot) if mapping else None
     if placed:
@@ -349,14 +384,10 @@ def _target(saved: dict, state, by_identity: dict[str, Monitor], host: Monitor |
         if number is not None:
             return str(number), screen.name, screen.identity, new_slot, False
 
-    # Not plugged in. If Omarchy already merged this slot elsewhere, join that
-    # workspace: making the original number now would make Omarchy renumber the
-    # merged one when the monitor returns. Only while it exists, though: a
-    # record outlives its workspace, and Omarchy forgets the record as soon as
-    # that number is created again, which would strand the windows.
-    for current, (original, identity) in sorted(state.merged.items()):
-        if identity == owner and (original - 1) % SLOTS + 1 == slot and current in existing:
-            return str(current), existing.get(current) or (host.name if host else None), owner, slot, True
+    # Not plugged in.
+    joined = _join_merged(owner, slot, state, existing, host)
+    if joined:
+        return joined
     number = state.workspace_for(owner, slot)
     if number is None:
         return None

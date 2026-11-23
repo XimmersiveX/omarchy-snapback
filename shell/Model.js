@@ -46,6 +46,7 @@ function parseStatus(text) {
     restoring: raw.restoring === true,
     sessions: sessions.filter(function (s) { return s && NAME_RE.test(String(s.name)) }).map(parseSession),
     lastRestore: parseRestore(raw.lastRestore),
+    fold: raw.fold === "snapback" ? "snapback" : "omarchy",
     screens: (Array.isArray(raw.screens) ? raw.screens.slice(0, 8) : []).filter(function (s) {
       return s && typeof s.connector === "string" && /^[A-Za-z0-9._-]{1,32}$/.test(s.connector)
     }).map(function (s) {

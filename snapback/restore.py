@@ -9,8 +9,8 @@ Order matters:
        around. It is turned back on in a `finally`, and a timer inside
        Hyprland turns it back on anyway if Snapback dies before that.
     2. Move workspaces that sit on the wrong monitor onto their owner.
-       Away from the setup's own screens, the windows to be moved are parked
-       on a hidden workspace first. Omarchy remembers which monitor each
+       Away from the setup's own screens, folding Snapback's way, the windows
+       to be moved are parked on a hidden workspace first. Omarchy remembers which monitor each
        workspace it folded came from and sends that workspace back when the
        monitor returns; a workspace Snapback refilled would otherwise take
        the wrong windows there. Emptied, those workspaces go away, and Omarchy
@@ -248,7 +248,7 @@ def _restore(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float
             except hypr.HyprError as exc:
                 report.errors.append(f"couldn't move ws {ws.workspace} to {ws.monitor}: {exc}")
 
-    if plan.elsewhere:
+    if plan.park:
         _park([s.window for s in plan.windows if s.action == "move" and s.window], desk, report)
 
     launches = []

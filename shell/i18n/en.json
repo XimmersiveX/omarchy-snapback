@@ -15,11 +15,6 @@
   "sessions.none": "No setups saved yet",
   "session.last": "Latest autosave",
   "session.previous": "Before this login",
-  "session.windows": {
-    "one": "%1 window",
-    "other": "%1 windows"
-  },
-  "session.meta": "%1 · %2",
   "session.unreadable": "Can't be read: %1",
   "session.deleteHint": "Delete this setup",
   "apps.more": "%1 +%2",
@@ -68,5 +63,7 @@
   "position.middle": "Middle",
   "position.right": "Right",
   "position.only": "This screen",
-  "position.n": "Screen %1"
+  "position.n": "Screen %1",
+  "undo": "Undo",
+  "session.empty": "No windows: a clean desk"
 }

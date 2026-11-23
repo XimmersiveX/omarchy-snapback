@@ -26,10 +26,20 @@ Panel {
   readonly property color barIconColor: snap.atLoginOn ? barForeground : Qt.darker(barForeground, 1.55)
 
   // The keyboard cursor walks these rows: the switch, each session, the save box.
+  // The user's setups first; Snapback's "Before switch" below them, under Undo.
+  // The autosave ("last") and the desk before this login ("previous") work
+  // behind the scenes and aren't listed.
+  readonly property var setups: snap.sessions.filter(function (s) { return !Model.isOwn(s.name) })
+  readonly property var undoSessions: snap.sessions.filter(function (s) { return s.name === "before-switch" })
   readonly property var rows: (snap.atLogin === "foreign" ? [] : ["switch"])
-    .concat(snap.sessions.map(function (s) { return "session:" + s.name }))
+    .concat(setups.map(function (s) { return "session:" + s.name }))
     .concat(["save"])
+    .concat(undoSessions.map(function (s) { return "session:" + s.name }))
     .concat(snap.screens.length > 1 ? ["main"] : [])
+  // The last restore is only worth showing when something didn't come back.
+  readonly property bool restoreTrouble: snap.lastRestore !== null
+    && (snap.lastRestore.problems.length > 0 || snap.lastRestore.errors.length > 0
+        || snap.lastRestore.kept.length > 0 || snap.lastRestore.misplaced > 0)
   property int rowIndex: 0
   property bool cursorActive: false
   readonly property string currentRow: cursorActive ? rows[Math.min(rowIndex, rows.length - 1)] : ""
@@ -206,10 +216,10 @@ Panel {
         if (id === "switch") return hero
         if (id === "save") return saveRow
         if (id === "main") return mainRow
-        for (var i = 0; i < sessionColumn.children.length; i++) {
-          var child = sessionColumn.children[i]
-          if (child.rowId === id) return child
-        }
+        var columns = [sessionColumn, undoColumn]
+        for (var c = 0; c < columns.length; c++)
+          for (var i = 0; i < columns[c].children.length; i++)
+            if (columns[c].children[i].rowId === id) return columns[c].children[i]
         return null
       }
 
@@ -307,7 +317,7 @@ Panel {
           }
 
           LastRestore {
-            visible: snap.lastRestore !== null
+            visible: root.restoreTrouble
             width: parent.width
           }
 
@@ -324,7 +334,7 @@ Panel {
             }
 
             PlainLine {
-              visible: snap.loaded && snap.sessions.length === 0
+              visible: snap.loaded && root.setups.length === 0
               text: strings.t("sessions.none")
               color: root.dim
               horizontalAlignment: Text.AlignHCenter
@@ -336,7 +346,7 @@ Panel {
               spacing: Style.space(6)
 
               Repeater {
-                model: snap.sessions
+                model: root.setups
                 SessionRow {
                   required property var modelData
                   width: sessionColumn.width
@@ -383,6 +393,28 @@ Panel {
                     keyCatcher.forceActiveFocus()
                     event.accepted = true
                   }
+                }
+              }
+            }
+
+            Column {
+              id: undoColumn
+              visible: root.undoSessions.length > 0
+              width: parent.width
+              spacing: Style.space(6)
+
+              PanelSectionHeader {
+                text: strings.t("undo")
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+              }
+
+              Repeater {
+                model: root.undoSessions
+                SessionRow {
+                  required property var modelData
+                  width: undoColumn.width
+                  session: modelData
                 }
               }
             }
@@ -579,23 +611,10 @@ Panel {
         Text {
           textFormat: Text.PlainText
           Layout.fillWidth: true
-          text: session.error
-            ? strings.t("session.unreadable").arg(session.error)
-            : strings.t("session.meta")
-                .arg(strings.tn("session.windows", session.windows).arg(session.windows))
-                .arg(root.when(session.savedAt))
+          text: session.error ? strings.t("session.unreadable").arg(session.error)
+            : session.apps.length > 0 ? Model.appsLine(session.apps, 4, strings.t)
+            : strings.t("session.empty")
           color: session.error ? root.urgent : root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          elide: Text.ElideRight
-        }
-
-        Text {
-          textFormat: Text.PlainText
-          Layout.fillWidth: true
-          visible: !session.error && session.apps.length > 0
-          text: Model.appsLine(session.apps, 4, strings.t)
-          color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight

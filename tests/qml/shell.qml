@@ -24,7 +24,8 @@ ShellRoot {
         sessions: [
           { name: "last", saved_at: new Date().toISOString(), windows: 4, reopen: 4, attention: 0, apps: ["A"] },
           { name: "previous", saved_at: "2026-11-23T00:52:30-07:00", windows: 6, reopen: 6, attention: 0, apps: [] },
-          { name: "work", saved_at: "2026-11-20T10:00:00-07:00", windows: 2, reopen: 2, attention: 0, apps: [] }
+          { name: "work", saved_at: "2026-11-20T10:00:00-07:00", windows: 2, reopen: 2, attention: 0, apps: [] },
+          { name: "before-switch", saved_at: "2026-11-23T10:00:00-07:00", windows: 3, reopen: 3, attention: 0, apps: [] }
         ],
         lastRestore: null
       }
@@ -38,17 +39,19 @@ ShellRoot {
 
       console.log("rows")
       status({})
-      check("the switch, each session, then the save box", barPanel.rows,
-            ["switch", "session:last", "session:previous", "session:work", "save"])
+      check("the switch, the user's setups, the save box, then undo", barPanel.rows,
+            ["switch", "session:work", "save", "session:before-switch"])
+      check("the autosave and the desk before login aren't listed",
+            barPanel.rows.indexOf("session:last") + barPanel.rows.indexOf("session:previous"), -2)
       check("every row has an item to scroll to",
             barPanel.rows.map(function (id) { return panelContent().rowItem(id) !== null }),
-            [true, true, true, true, true])
+            [true, true, true, true])
       barPanel.cursorActive = true
       barPanel.rowIndex = 0
       barPanel.moveCursor(1)
-      check("down from the switch reaches the first session", barPanel.currentRow, "session:last")
+      check("down from the switch reaches the first setup", barPanel.currentRow, "session:work")
       barPanel.moveCursor(10)
-      check("the cursor stops at the save box", barPanel.currentRow, "save")
+      check("the cursor stops at the last row", barPanel.currentRow, "session:before-switch")
       barPanel.moveCursor(-10)
       check("and at the switch", barPanel.currentRow, "switch")
 
@@ -77,7 +80,7 @@ ShellRoot {
       var service = barPanel.service
       console.log("someone else's hook")
       status({ atLogin: "foreign" })
-      check("no switch row", barPanel.rows[0], "session:last")
+      check("no switch row", barPanel.rows[0], "session:work")
       service.setAtLogin(true)
       check("the switch can't take it over", service.switchBusy, false)
 
@@ -96,6 +99,10 @@ ShellRoot {
                               counts: { placed: 5, "in-place": 1 }, problems: [{ app: "steam", detail: "x" }],
                               errors: [], misplaced: 1 } })
       check("summary", barPanel.restoreSummary(service.lastRestore), "6 windows back · 1 still out of place · just now")
+      check("a restore with trouble is shown", barPanel.restoreTrouble, true)
+      status({ lastRestore: { at: new Date().toISOString(), session: "last", trigger: "login", ok: true,
+                              counts: { placed: 6 }, problems: [], errors: [], misplaced: 0, kept: [] } })
+      check("a clean one isn't", barPanel.restoreTrouble, false)
       check("autosave line", barPanel.autosaveLine(), "Autosaved just now")
       status({ watching: false })
       check("autosave off", barPanel.autosaveLine(), "Autosave isn't running")
@@ -117,7 +124,7 @@ ShellRoot {
           console.log("main screen")
           status({ screens: [{ connector: "HDMI-A-1", identity: "TV", position: "left", main: false },
                              { connector: "DP-3", identity: "ROG", position: "middle", main: true }] })
-          check("a main-screen row after the save box", barPanel.rows[barPanel.rows.indexOf("save") + 1], "main")
+          check("a main-screen row, last", barPanel.rows[barPanel.rows.length - 1], "main")
           check("it has an item", panelContent().rowItem("main") !== null, true)
           status({ screens: [{ connector: "eDP-1", identity: "Laptop", position: "only", main: true }] })
           check("no main-screen row with one screen", barPanel.rows.indexOf("main"), -1)

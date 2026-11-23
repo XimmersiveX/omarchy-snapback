@@ -4,6 +4,7 @@
   "name": "Snapback",
   "version": "0.1.0",
   "author": "XimmersiveX",
+  "license": "MIT",
   "description": "Puts your windows back after a reboot: every app on the screen, workspace and tile it was on. Saved sessions and restore at login from the Omarchy bar.",
   "kinds": [
     "bar-widget"

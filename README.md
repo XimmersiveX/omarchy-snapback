@@ -33,3 +33,7 @@ python3 -m unittest discover -s tests -t .
 
 The panel's helpers run under `node` and its logic in an offscreen Quickshell; both
 are skipped where those aren't installed. `omarchy plugin validate .` checks the manifest.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

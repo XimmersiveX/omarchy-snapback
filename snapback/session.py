@@ -19,6 +19,7 @@ from typing import Callable
 
 from .apps import ProcInfo, Resolver
 from .capture import CapturedWindow, Source, capture
+from .screens import pick_main
 
 SCHEMA = 1
 DEFAULT_NAME = "last"
@@ -71,7 +72,8 @@ class SavedWindow:
 
 
 def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
-          versions: dict | None = None, now: datetime | None = None) -> dict:
+          versions: dict | None = None, now: datetime | None = None,
+          marks: set[str] | frozenset = frozenset()) -> dict:
     """The session for a snapshot. `procs` looks up a window's process (live
     /proc, or a stand-in in tests)."""
     saved = []
@@ -87,6 +89,7 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
 
     active = {m["name"]: (m.get("activeWorkspace") or {}).get("id")
               for m in source.snapshot["monitors"]}
+    main = pick_main([(m.identity, m.box) for m in source.monitors()], set(marks))
     monitors = []
     for m in source.monitors():
         monitors.append({
@@ -97,6 +100,7 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
             "transform": m.transform,
             "block": source.workspaces.blocks.get(m.identity),
             "view": view(source, m.identity, active.get(m.name)),
+            "main": m.identity == main,
         })
 
     return {

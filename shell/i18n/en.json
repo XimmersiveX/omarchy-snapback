@@ -60,5 +60,13 @@
   },
   "restore.kept": "Still open: %1 (it may be asking to save)",
   "session.addHint": "Put these windows back without closing anything (A)",
-  "session.beforeSwitch": "Before switch"
+  "session.beforeSwitch": "Before switch",
+  "screens.main": "Main screen here: %1",
+  "screens.guessed": "%1 · a guess; click to choose another",
+  "screens.marked": "%1 · click to choose another",
+  "position.left": "Left",
+  "position.middle": "Middle",
+  "position.right": "Right",
+  "position.only": "This screen",
+  "position.n": "Screen %1"
 }

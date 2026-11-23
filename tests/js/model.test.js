@@ -124,6 +124,22 @@ test("errorLine", () => {
   assert.strictEqual(M.errorLine(""), "")
 })
 
+test("screens", () => {
+  const s = M.parseStatus(JSON.stringify({ screens: [
+    { connector: "HDMI-A-1", identity: "TV", position: "left", main: false, marked: false },
+    { connector: "DP-3", identity: "ROG", position: "middle", main: true, marked: true },
+    { connector: "bad name; rm", identity: "x", position: "right" },
+    { connector: "DP-2", identity: "ROG 2", position: "right", main: "yes" }] }))
+  assert.deepStrictEqual(Array.from(s.screens, (x) => x.connector), ["HDMI-A-1", "DP-3", "DP-2"])
+  assert.strictEqual(s.screens[2].main, false)
+  assert.strictEqual(M.nextMain(s.screens).connector, "DP-2")
+  assert.strictEqual(M.nextMain([s.screens[2], s.screens[1]]).connector, "DP-2")  // wraps
+  assert.strictEqual(M.nextMain([{ connector: "a", main: false }, { connector: "b", main: false }]).connector, "a")
+  assert.strictEqual(M.nextMain([s.screens[0]]), null)
+  assert.strictEqual(M.positionName("middle", t), "Middle")
+  assert.strictEqual(M.positionName("4", t), "Screen 4")
+})
+
 test("every string the panel uses is in en.json", () => {
   const used = new Set()
   for (const file of ["Panel.qml", "Service.qml", "Model.js"]) {

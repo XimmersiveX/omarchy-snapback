@@ -171,3 +171,15 @@ class Views(unittest.TestCase):
         from snapback.session import view
         source = Source.from_dir(FIXTURES / "tv-on-scene")
         self.assertIsNone(view(source, "LG Electronics LG TV SSCR2 SERIAL3", 12))
+
+
+class MainScreen(unittest.TestCase):
+    def test_the_main_screen_is_recorded(self):
+        main = {m["connector"]: m["main"] for m in scene()["monitors"]}
+        self.assertEqual(main, {"DP-2": False, "DP-3": True, "HDMI-A-1": False})  # largest, leftmost
+
+    def test_a_marked_screen_is_recorded_as_main(self):
+        source = Source.from_dir(FIXTURES / "tv-on-scene")
+        saved = build(source, Resolver(ENTRIES), lambda pid: ProcInfo(), {}, NOW,
+                      marks={"LG Electronics LG TV SSCR2 SERIAL3"})
+        self.assertEqual([m["connector"] for m in saved["monitors"] if m["main"]], ["HDMI-A-1"])

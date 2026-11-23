@@ -23,6 +23,7 @@ Item {
   property bool restoring: false
   property var sessions: []
   property var lastRestore: null
+  property var screens: []
   property string hookPath: ""
 
   // The switch shows what was asked for until a status read agrees (-1: follow
@@ -61,6 +62,7 @@ Item {
     restoring = parsed.restoring
     if (!_same(sessions, parsed.sessions)) sessions = parsed.sessions
     if (!_same(lastRestore, parsed.lastRestore)) lastRestore = parsed.lastRestore
+    if (!_same(screens, parsed.screens)) screens = parsed.screens
     if (_desiredAtLogin !== -1 && !setupProcess.running && atLoginOn === (atLogin === "on"))
       _desiredAtLogin = -1
   }
@@ -100,6 +102,14 @@ Item {
     saveProcess.name = name
     saveProcess.command = cli(["save", name])
     saveProcess.running = true
+  }
+
+  // Mark the main screen of this place (setups opened on other screens than
+  // they were saved on put their main screen's windows there).
+  function setMain(connector) {
+    if (mainProcess.running) return
+    mainProcess.command = cli(["screens", "--main", connector])
+    mainProcess.running = true
   }
 
   function remove(name) {
@@ -155,6 +165,16 @@ Item {
       var line = Model.errorLine(restoreErr.text)
       if (exitCode !== 0 && line !== "") root.flash(root.t("restore.failed").arg(line), true)
       root.restoringName = ""
+      root.refresh()
+    }
+  }
+
+  Process {
+    id: mainProcess
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { id: mainErr; waitForEnd: true }
+    onExited: function (exitCode) {
+      if (exitCode !== 0) root.flash(Model.errorLine(mainErr.text) || root.t("error.generic"), true)
       root.refresh()
     }
   }

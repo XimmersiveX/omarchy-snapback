@@ -29,6 +29,7 @@ Panel {
   readonly property var rows: (snap.atLogin === "foreign" ? [] : ["switch"])
     .concat(snap.sessions.map(function (s) { return "session:" + s.name }))
     .concat(["save"])
+    .concat(snap.screens.length > 1 ? ["main"] : [])
   property int rowIndex: 0
   property bool cursorActive: false
   readonly property string currentRow: cursorActive ? rows[Math.min(rowIndex, rows.length - 1)] : ""
@@ -56,7 +57,14 @@ Panel {
   function activate(id) {
     if (id === "switch") snap.toggleAtLogin()
     else if (id === "save" && saveField) saveField.forceActiveFocus()
+    else if (id === "main") cycleMain()
     else if (id.indexOf("session:") === 0) switchTo(id.slice(8))
+  }
+
+  // Moves "main" to the next screen, left to right.
+  function cycleMain() {
+    var next = Model.nextMain(snap.screens)
+    if (next) snap.setMain(next.connector)
   }
 
   function deleteCurrent() {
@@ -197,6 +205,7 @@ Panel {
       function rowItem(id) {
         if (id === "switch") return hero
         if (id === "save") return saveRow
+        if (id === "main") return mainRow
         for (var i = 0; i < sessionColumn.children.length; i++) {
           var child = sessionColumn.children[i]
           if (child.rowId === id) return child
@@ -373,6 +382,74 @@ Panel {
                   Keys.onEscapePressed: function (event) {
                     keyCatcher.forceActiveFocus()
                     event.accepted = true
+                  }
+                }
+              }
+            }
+
+            // Which screen is main here. Setups opened on other screens than
+            // they were saved on put their main screen's windows on it, and
+            // fold screens this place doesn't have into it.
+            CursorSurface {
+              id: mainRow
+              visible: snap.screens.length > 1
+              width: parent.width
+              hasCursor: root.currentRow === "main"
+              foreground: root.foreground
+              implicitHeight: mainLayout.implicitHeight + Style.spacing.rowPaddingX
+              readonly property var current: snap.screens.filter(function (s) { return s.main })[0] || null
+
+              MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onEntered: root.setRowCursor("main")
+                onClicked: root.cycleMain()
+              }
+
+              RowLayout {
+                id: mainLayout
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Style.space(10)
+                anchors.rightMargin: Style.space(10)
+                spacing: Style.space(8)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: Model.GLYPH.screen
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.icon
+                  Layout.alignment: Qt.AlignVCenter
+                }
+
+                ColumnLayout {
+                  Layout.fillWidth: true
+                  spacing: Style.space(1)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    Layout.fillWidth: true
+                    text: mainRow.current
+                      ? strings.t("screens.main").arg(Model.positionName(mainRow.current.position, strings.t)) : ""
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    elide: Text.ElideRight
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    Layout.fillWidth: true
+                    text: mainRow.current
+                      ? strings.t(mainRow.current.marked ? "screens.marked" : "screens.guessed")
+                          .arg(mainRow.current.identity) : ""
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    elide: Text.ElideRight
                   }
                 }
               }

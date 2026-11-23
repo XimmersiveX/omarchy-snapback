@@ -32,6 +32,9 @@ restore that closes them ("switch to" a session).
 
 Each screen goes back to the workspace it was showing when the session was
 saved (`views`), where the session recorded it and the screen is plugged in.
+
+Away from the screens a setup was saved on, its screens are matched by role
+and the leftovers fold into the main screen (see screens.py).
 """
 
 from __future__ import annotations
@@ -44,6 +47,7 @@ from .apps import TUI_ID, DesktopEntry, exec_args
 from .capture import CapturedWindow, Source, capture
 from .geometry import Monitor, Placement, Rect, project
 from .omarchy import SLOTS
+from .screens import Mapping, map_screens
 
 GEOMETRY_TOLERANCE = 2.0
 
@@ -107,6 +111,7 @@ class Plan:
     others: list[dict] = field(default_factory=list)  # those on regular workspaces: what
                                                       # switching to the session closes
     views: dict[str, str] = field(default_factory=dict)  # connector -> workspace it showed
+    screens: list[dict] = field(default_factory=list)  # how each saved screen lands today
 
     def count(self, action: str) -> int:
         return sum(1 for w in self.windows if w.action == action)
@@ -121,6 +126,7 @@ class Plan:
             "untouched": self.untouched,
             "others": self.others,
             "views": self.views,
+            "screens": self.screens,
             "summary": {a: self.count(a) for a in ("launch", "move", "in-place", "skip", "problem")},
         }
 
@@ -143,7 +149,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
           never: Callable[[str], bool] = lambda text: False,
           default_terminal: str | None = None,
           is_dir: Callable[[str], bool] = os.path.isdir,
-          name: str = "") -> Plan:
+          name: str = "", marks: set[str] | frozenset = frozenset()) -> Plan:
     """The plan for restoring `session` onto the desktop in `source`.
 
     `entries` are the apps installed now, `never` is the never-restore check
@@ -160,7 +166,8 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
 
     open_windows = capture(source)
     same_instance = bool(source.instance) and session.get("hyprland_instance") == source.instance
-    targets = [_target(saved, state, by_identity, host, existing) for saved in session["windows"]]
+    mapping = map_screens(session, monitors, set(marks))
+    targets = [_target(saved, state, by_identity, host, existing, mapping) for saved in session["windows"]]
     matches = _match(session["windows"], open_windows, same_instance,
                      [t[0] if t else None for t in targets])
 
@@ -250,7 +257,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
               if w.address not in taken and not w.workspace.startswith("special:")]
     return Plan(name, session.get("saved_at"), sorted(workspace_steps.values(), key=lambda w: w.workspace),
                 steps, missing, len(open_windows) - len(taken), others,
-                _views(session, state, by_identity))
+                _views(session, state, by_identity, mapping), _screens(session, mapping, by_identity))
 
 
 def app_name(app: str, entries: dict[str, DesktopEntry]) -> str:
@@ -262,11 +269,29 @@ def app_name(app: str, entries: dict[str, DesktopEntry]) -> str:
     return entry.name if entry else app
 
 
-def _views(session: dict, state, by_identity: dict[str, Monitor]) -> dict[str, str]:
+def _screens(session: dict, mapping: Mapping, by_identity: dict[str, Monitor]) -> list[dict]:
+    """For people: where each saved screen's windows go today."""
+    result = []
+    for saved in session.get("monitors", []):
+        identity = saved.get("identity")
+        monitor = mapping.screen.get(identity)
+        if monitor:
+            how = "same" if identity in by_identity else ("main" if monitor is mapping.main else "side")
+            result.append({"saved": identity, "was": saved.get("connector"), "to": monitor.name, "how": how})
+        elif any(key[0] == identity for key in mapping.folded):
+            result.append({"saved": identity, "was": saved.get("connector"), "how": "folded",
+                           "to": mapping.main.name if mapping.main else None,
+                           "slots": {str(s): t for (i, s), t in sorted(mapping.folded.items()) if i == identity}})
+        else:
+            result.append({"saved": identity, "was": saved.get("connector"), "to": None, "how": "waiting"})
+    return result
+
+
+def _views(session: dict, state, by_identity: dict[str, Monitor], mapping: Mapping) -> dict[str, str]:
     """Connector -> the workspace that screen showed when the session was saved."""
     views = {}
     for saved in session.get("monitors", []):
-        monitor = by_identity.get(saved.get("identity"))
+        monitor = by_identity.get(saved.get("identity")) or mapping.screen.get(saved.get("identity"))
         view = saved.get("view") or {}
         if not monitor:
             continue
@@ -293,7 +318,8 @@ def _existing_workspaces(source: Source) -> dict[int, str]:
 
 
 def _target(saved: dict, state, by_identity: dict[str, Monitor], host: Monitor | None,
-            existing: dict[int, str]) -> tuple[str, str | None, str | None, int | None, bool] | None:
+            existing: dict[int, str], mapping: Mapping | None = None
+            ) -> tuple[str, str | None, str | None, int | None, bool] | None:
     """(workspace, connector, owner identity, slot, waiting) for a saved window."""
     workspace = str(saved.get("workspace", ""))
     owner, slot = saved.get("monitor"), saved.get("slot")
@@ -311,6 +337,14 @@ def _target(saved: dict, state, by_identity: dict[str, Monitor], host: Monitor |
         if number is None:  # plugged in, but Omarchy hasn't given it a block
             return None
         return str(number), monitor.name, owner, slot, False
+
+    # Elsewhere: the screen it goes to by role, or a slot folded into main.
+    placed = mapping.place(owner, slot) if mapping else None
+    if placed:
+        screen, new_slot = placed
+        number = state.workspace_for(screen.identity, new_slot)
+        if number is not None:
+            return str(number), screen.name, screen.identity, new_slot, False
 
     # Not plugged in. If Omarchy already merged this slot elsewhere, join that
     # workspace: making the original number now would make Omarchy renumber the

@@ -11,7 +11,8 @@ var GLYPH = {
   named: String.fromCodePoint(0xF056E),     // view-dashboard
   remove: String.fromCodePoint(0xF01B4),    // delete
   addOnly: String.fromCodePoint(0xF0E4D),   // layers-plus: put back, close nothing
-  save: String.fromCodePoint(0xF0193)
+  save: String.fromCodePoint(0xF0193),
+  screen: String.fromCodePoint(0xF0379)     // monitor
 }
 
 var OWN = ["last", "before-switch", "previous"]
@@ -44,7 +45,13 @@ function parseStatus(text) {
     watching: raw.watching === true,
     restoring: raw.restoring === true,
     sessions: sessions.filter(function (s) { return s && NAME_RE.test(String(s.name)) }).map(parseSession),
-    lastRestore: parseRestore(raw.lastRestore)
+    lastRestore: parseRestore(raw.lastRestore),
+    screens: (Array.isArray(raw.screens) ? raw.screens.slice(0, 8) : []).filter(function (s) {
+      return s && typeof s.connector === "string" && /^[A-Za-z0-9._-]{1,32}$/.test(s.connector)
+    }).map(function (s) {
+      return { connector: s.connector, identity: str(s.identity, 120), position: str(s.position, 10),
+               main: s.main === true, marked: s.marked === true }
+    })
   }
 }
 
@@ -77,6 +84,23 @@ function parseRestore(r) {
     closed: num(r.closed),
     kept: (Array.isArray(r.kept) ? r.kept.slice(0, 20) : []).map(function (k) { return str(k, 80) })
   }
+}
+
+// "Left", "Middle", "Right", "This screen", or "Screen 4".
+function positionName(position, t) {
+  if (position === "left") return t("position.left")
+  if (position === "middle") return t("position.middle")
+  if (position === "right") return t("position.right")
+  if (position === "only") return t("position.only")
+  return t("position.n").arg(position)
+}
+
+// The screen after the main one, for a click that moves "main" along.
+function nextMain(screens) {
+  if (!screens || screens.length < 2) return null
+  for (var i = 0; i < screens.length; i++)
+    if (screens[i].main) return screens[(i + 1) % screens.length]
+  return screens[0]
 }
 
 function isOwn(name) { return OWN.indexOf(name) >= 0 }

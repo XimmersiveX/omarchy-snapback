@@ -8,6 +8,7 @@
     python -m snapback login
     python -m snapback setup [--remove]
     python -m snapback status [--json]
+    python -m snapback screens [--main SCREEN] [--json]
     python -m snapback doctor
 """
 
@@ -21,7 +22,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, apps, config, hypr, omarchy, plan, restore, session, setup, status, watch
+from . import __version__, apps, config, hypr, omarchy, plan, restore, screens, session, setup, status, watch
 from .capture import Source, capture
 
 TESTED_HYPRLAND = ("v0.56",)
@@ -71,7 +72,7 @@ def cmd_save(args: argparse.Namespace) -> int:
         source = Source.live()
         procs = apps.read_proc
         versions = versions_of(source)
-    saved = session.build(source, resolver, procs, versions)
+    saved = session.build(source, resolver, procs, versions, marks=screens.load_marks())
 
     if args.json:
         print(json.dumps(saved, indent=2))
@@ -116,8 +117,9 @@ def cmd_restore(args: argparse.Namespace) -> int:
     resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
     source = Source.from_dir(Path(args.source)) if args.source else Source.live()
     terminal = apps.default_terminal()
+    marks = screens.load_marks()
     result = plan.build(saved, source, resolver.entries, resolver.is_never, terminal,
-                        name=path.stem)
+                        name=path.stem, marks=marks)
     if args.dry_run:
         if args.json:
             print(json.dumps(result.to_dict(), indent=2))
@@ -129,7 +131,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
         # Switching: keep the desk as it is now, so switching to UNDO_NAME
         # undoes this. The session being restored was read above, so switching
         # to UNDO_NAME itself swaps the two. An empty desk is kept too.
-        undo = session.build(source, resolver, apps.read_proc, versions_of(source))
+        undo = session.build(source, resolver, apps.read_proc, versions_of(source), marks=marks)
         session.write(undo, session.session_path(session.UNDO_NAME), force=True)
     trigger = "login" if args.at_login else "manual"
     with restore.Lock():
@@ -141,7 +143,8 @@ def cmd_restore(args: argparse.Namespace) -> int:
             status.record_restore(status.restore_record(path.stem, trigger, error=str(exc)))
             raise
     # Check: planned again now, everything should already be in place.
-    after = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal)
+    after = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal,
+                       marks=marks)
     off = [w for w in after.windows if w.action not in ("in-place", "skip", "problem")]
     status.record_restore(status.restore_record(
         path.stem, trigger, report.to_dict(), check=[w.to_dict() for w in off]))
@@ -237,6 +240,19 @@ def show_plan(result: plan.Plan, source: Source, close_others: bool = False) -> 
         print(f"Close first ({len(result.others)})")
         for other in result.others:
             print(f"  close {other['name']}  on ws {other['workspace']}  ({other['title'][:60]})")
+    moved = [m for m in result.screens if m["how"] != "same"]
+    if moved:
+        print()
+        print("Screens (not where this setup was saved)")
+        for m in moved:
+            was = m["was"] or m["saved"]
+            if m["how"] in ("main", "side"):
+                print(f"  {was} -> {m['to']}" + ("  (main screen)" if m["how"] == "main" else ""))
+            elif m["how"] == "folded":
+                slots = ", ".join(f"{a}->{b}" for a, b in m["slots"].items())
+                print(f"  {was} -> folded into {m['to']} (workspaces {slots})")
+            else:
+                print(f"  {was} -> waits for it to be plugged in")
     if result.views:
         print()
         print("Screens: " + ", ".join(f"{m} shows ws {ws}" for m, ws in sorted(result.views.items())))
@@ -270,7 +286,8 @@ def autosaver(name: str = session.DEFAULT_NAME):
         cfg = config.load()
         resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
         source = Source.live()
-        saved = session.build(source, resolver, apps.read_proc, versions_of(source))
+        saved = session.build(source, resolver, apps.read_proc, versions_of(source),
+                              marks=screens.load_marks())
         if watch.comparable(saved) == last[0]:
             return False
         session.write(saved, path)
@@ -318,7 +335,7 @@ def cmd_login(args: argparse.Namespace) -> int:
             resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
             terminal = apps.default_terminal()
             result = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal,
-                                name="last")
+                                name="last", marks=screens.load_marks())
             with restore.Lock():
                 report = restore.run(result, restore.LiveDesk(), timeout=args.timeout)
             print(json.dumps(report.to_dict()), flush=True)
@@ -388,6 +405,7 @@ def current_status() -> dict:
         restoring=watch.restore_running(),
         version=__version__,
         entries=apps.load_entries(apps.data_dirs()),
+        screens=screen_list(),
     )
 
 
@@ -419,6 +437,34 @@ def cmd_status(args: argparse.Namespace) -> int:
               + (f", {last['misplaced']} not where they belong" if last["misplaced"] else ""))
         for e in last["errors"]:
             print(f"  FAIL  {e}")
+    return 0
+
+
+def screen_list(source: Source | None = None) -> list[dict]:
+    """Today's screens left to right, with which one is main (marked or guessed)."""
+    source = source or Source.live()
+    monitors = sorted(source.monitors(), key=lambda m: (m.box.x, m.box.y))
+    marks = screens.load_marks()
+    main = screens.pick_main([(m.identity, m.box) for m in monitors], marks)
+    names = {1: ["only"], 2: ["left", "right"], 3: ["left", "middle", "right"]}.get(len(monitors))
+    return [{"connector": m.name, "identity": m.identity, "position": names[i] if names else str(i + 1),
+             "main": m.identity == main, "marked": m.identity in marks} for i, m in enumerate(monitors)]
+
+
+def cmd_screens(args: argparse.Namespace) -> int:
+    if args.main:
+        found = [s for s in screen_list() if args.main in (s["connector"], s["identity"])]
+        if not found:
+            print(f"snapback: no screen {args.main!r} is plugged in", file=sys.stderr)
+            return 1
+        screens.mark_main(found[0]["identity"], [s["identity"] for s in screen_list()])
+    listing = screen_list()
+    if args.json:
+        print(json.dumps(listing, indent=2))
+        return 0
+    for s in listing:
+        main = "  main" + ("" if s["marked"] else " (guessed; mark it with --main)") if s["main"] else ""
+        print(f"  {s['position']:<7} {s['connector']:<9} {s['identity']}{main}")
     return 0
 
 
@@ -507,6 +553,12 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("status", help="is Snapback on, what's saved, how the last restore went")
     p.add_argument("--json", action="store_true", help="print it as JSON (what the panel reads)")
     p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("screens", help="list the screens; mark the main one here (setups use it "
+                                       "on other screens than they were saved on)")
+    p.add_argument("--main", metavar="SCREEN", help="mark this screen (connector or name) as main")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_screens)
 
     p = sub.add_parser("doctor", help="check this system is one Snapback understands")
     p.set_defaults(func=cmd_doctor)

@@ -114,6 +114,13 @@ ShellRoot {
           var shown = service.actionStatus
           barPanel.deleteCurrent()
           check("before-switch is Snapback's own: not deletable", service.actionStatus, shown)
+          console.log("main screen")
+          status({ screens: [{ connector: "HDMI-A-1", identity: "TV", position: "left", main: false },
+                             { connector: "DP-3", identity: "ROG", position: "middle", main: true }] })
+          check("a main-screen row after the save box", barPanel.rows[barPanel.rows.length - 1], "main")
+          check("it has an item", panelContent().rowItem("main") !== null, true)
+          status({ screens: [{ connector: "eDP-1", identity: "Laptop", position: "only", main: true }] })
+          check("no main-screen row with one screen", barPanel.rows.indexOf("main"), -1)
           console.log(failures === 0 ? "ALL OK" : failures + " FAILED")
         })
       })

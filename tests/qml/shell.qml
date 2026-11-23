@@ -116,7 +116,17 @@ ShellRoot {
         service.previewReady("previous", [])
         check("with nothing to close it just restores", service.restoringName, "previous")
         check("without closing", service.restoreCommand.indexOf("--close-others"), -1)
-        console.log(failures === 0 ? "ALL OK" : failures + " FAILED")
+        settle(function () {
+          var before = service.previews
+          barPanel.activate("session:work")
+          check("clicking a session switches to it: it reads what would close first", service.previews, before + 1)
+          check("and restores nothing yet", service.restoringName, "")
+          settle(function () {
+            barPanel.restore("work", false)
+            check("the row's button puts windows back without closing", service.restoreCommand.indexOf("--close-others"), -1)
+            console.log(failures === 0 ? "ALL OK" : failures + " FAILED")
+          })
+        })
       })
     }
 

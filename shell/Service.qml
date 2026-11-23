@@ -33,6 +33,7 @@ Item {
   property string restoringName: ""
   readonly property bool busy: restoring || restoreProcess.running
   readonly property var restoreCommand: restoreProcess.command  // what the last restore ran
+  property int previews: 0   // how many switch previews were asked for
 
   property string actionStatus: ""
   property bool actionIsError: false
@@ -97,6 +98,7 @@ Item {
   signal previewReady(string name, var others)
   function preview(name) {
     if (busy || previewProcess.running || !Model.NAME_RE.test(name)) return
+    previews++
     previewProcess.name = name
     previewProcess.command = cli(["restore", name, "--dry-run", "--json"])
     previewProcess.running = true

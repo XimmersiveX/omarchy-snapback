@@ -56,7 +56,7 @@ Panel {
   function activate(id) {
     if (id === "switch") snap.toggleAtLogin()
     else if (id === "save" && saveField) saveField.forceActiveFocus()
-    else if (id.indexOf("session:") === 0) restore(id.slice(8))
+    else if (id.indexOf("session:") === 0) switchTo(id.slice(8))
   }
 
   function deleteCurrent() {
@@ -75,8 +75,9 @@ Panel {
     snap.restore(name, closeOthers === true)
   }
 
-  // "Switch to": restore a session and close the windows it doesn't name,
-  // after showing which. With nothing to close it is a plain restore.
+  // Clicking a session switches to it: restore it and close the windows it
+  // doesn't name, after showing which. With nothing to close it is a plain
+  // restore. The row's button puts windows back without closing anything.
   property string switchName: ""
   property var switchOthers: []
   function switchTo(name) { snap.preview(name) }
@@ -225,8 +226,8 @@ Panel {
       }
       onTextKey: function (t) {
         if (switchConfirm.opened) return
-        if ((t === "w" || t === "W") && root.currentRow.indexOf("session:") === 0)
-          root.switchTo(root.currentRow.slice(8))
+        if ((t === "a" || t === "A") && root.currentRow.indexOf("session:") === 0)
+          root.restore(root.currentRow.slice(8), false)
         else if (t === "r" || t === "R") snap.refresh()
         else if (t === "s" || t === "S") { root.setRowCursor("save"); saveField.forceActiveFocus() }
       }
@@ -490,7 +491,7 @@ Panel {
       cursorShape: snap.busy || session.error ? Qt.ArrowCursor : Qt.PointingHandCursor
       enabled: !session.error
       onEntered: root.setRowCursor(sessionRow.rowId)
-      onClicked: root.restore(session.name)
+      onClicked: root.switchTo(session.name)
     }
 
     RowLayout {
@@ -554,14 +555,14 @@ Panel {
 
       PanelActionButton {
         visible: !session.error
-        iconText: Model.GLYPH.switchTo
-        tooltipText: strings.t("session.switchHint")
+        iconText: Model.GLYPH.addOnly
+        tooltipText: strings.t("session.addHint")
         foreground: root.foreground
         fontFamily: root.fontFamily
         enabled: !snap.busy
         Layout.alignment: Qt.AlignVCenter
         onHovered: function (on) { if (on) root.setRowCursor(sessionRow.rowId) }
-        onClicked: root.switchTo(session.name)
+        onClicked: root.restore(session.name, false)
       }
 
       PanelActionButton {

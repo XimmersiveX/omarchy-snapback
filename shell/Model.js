@@ -9,7 +9,7 @@ var GLYPH = {
   previous: String.fromCodePoint(0xF054D),  // undo-variant
   named: String.fromCodePoint(0xF056E),     // view-dashboard
   remove: String.fromCodePoint(0xF01B4),    // delete
-  switchTo: String.fromCodePoint(0xF04E1),  // swap-horizontal
+  addOnly: String.fromCodePoint(0xF0E4D),   // layers-plus: put back, close nothing
   save: String.fromCodePoint(0xF0193)
 }
 

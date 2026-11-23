@@ -31,7 +31,14 @@ Order matters:
        session doesn't know, or a shape no tree of splits makes, only has its
        windows swapped into the tiles nearest their saved spots.
     6. Show on each screen the workspace it showed when the session was saved.
-    7. Give focus back, to a window on a workspace that is on screen.
+    7. Put windows saved full screen or full width back that way. Last, as a
+       full screen window would stand in the way of laying out the tiles under
+       it; a window that is full screen now but wasn't saved so leaves it in
+       step 3, before it moves. Windows waiting for their monitor are left as
+       they are, so they don't cover the screen hosting them.
+    8. Give focus back, to a window on a workspace that is on screen. On a
+       workspace with a full screen window, that window: focusing one under it
+       would take its full screen away (Omarchy's on_focus_under_fullscreen).
 
 A window always goes to its workspace first. Moving a window to a workspace
 that doesn't exist yet makes that workspace on the window's monitor, so it is
@@ -207,6 +214,7 @@ def run(plan: Plan, desk: Desk, timeout: float = 30.0, poll: float = 0.25,
         _arrange_tiles(desk, report, settle, log)
         if plan.views:
             _show_views(desk, plan.views, report)
+        _fullscreen(desk, report, log)
     finally:
         if turned_off:
             try:
@@ -303,6 +311,32 @@ def _restore(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float
 
 
 STAGING = "special:snapback-staging"
+MODES = {1: "maximized", 2: "fullscreen"}  # Hyprland's names for fullscreen states 1 and 2
+
+
+def _unset_fullscreen(desk: Desk, window: str, now: int) -> None:
+    desk.dispatch("window.fullscreen", mode=MODES.get(now, "fullscreen"), action="unset", window=window)
+
+
+def _fullscreen(desk: Desk, report: Report, log) -> None:
+    """Each restored window back to the way it filled its screen."""
+    clients = {c["address"]: c for c in desk.clients()}
+    for r in report.results:
+        client = clients.get(r.address) if r.outcome in ("placed", "in-place") else None
+        if client is None or r.step.waiting:
+            continue
+        now, want = int(client.get("fullscreen") or 0), r.step.fullscreen
+        if now == want:
+            continue
+        window = f"address:{r.address}"
+        try:
+            if now:
+                _unset_fullscreen(desk, window, now)
+            if want:
+                desk.dispatch("window.fullscreen", mode=MODES[want], action="set", window=window)
+            log(f"{MODES.get(want, 'no fullscreen')}: {r.step.app}")
+        except hypr.HyprError as exc:
+            report.errors.append(f"couldn't put {r.step.app} back {MODES.get(want, 'out of fullscreen')}: {exc}")
 
 
 def _park(addresses: list[str], desk: Desk, report: Report) -> None:
@@ -498,6 +532,9 @@ def _place(desk: Desk, step: WindowStep, address: str, log) -> Result:
         client = _client(desk, address)
         if client is None:
             return Result(step, "failed", address, "the window closed")
+        now = int(client.get("fullscreen") or 0)
+        if now and now != step.fullscreen and not step.waiting:
+            _unset_fullscreen(desk, window, now)
         if step.workspace and client["workspace"]["name"] != step.workspace:
             desk.dispatch("window.move", window=window, workspace=step.workspace, follow=False)
         if step.monitor and step.workspace and step.workspace.isdigit():
@@ -527,7 +564,8 @@ def _refocus(desk: Desk, focused: str | None, plan: Plan, report: Report) -> Non
         special = (m.get("specialWorkspace") or {}).get("name")
         if special:
             shown.add(special)
-    present = {c["address"] for c in desk.clients() if c["workspace"]["name"] in shown}
+    clients = [c for c in desk.clients() if c["workspace"]["name"] in shown]
+    present = {c["address"] for c in clients}
     target = focused if focused in present else None
     if target is None:
         # Windows are saved most recently focused first.
@@ -537,6 +575,9 @@ def _refocus(desk: Desk, focused: str | None, plan: Plan, report: Report) -> Non
                 target = result.address
                 break
     if target:
+        workspace = next(c["workspace"]["name"] for c in clients if c["address"] == target)
+        target = next((c["address"] for c in clients if c["workspace"]["name"] == workspace
+                       and c.get("fullscreen")), target)
         try:
             desk.dispatch("focus", window=f"address:{target}")
         except hypr.HyprError as exc:

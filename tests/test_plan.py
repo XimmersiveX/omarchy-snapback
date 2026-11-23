@@ -297,6 +297,48 @@ class TerminalApps(unittest.TestCase):
         self.assertEqual((step.action, step.command), ("problem", None))
 
 
+class Fullscreen(unittest.TestCase):
+    def saved(self, app, mode):
+        session = saved_scene()
+        next(w for w in session["windows"] if w["app"] == app)["fullscreen"] = mode
+        return session
+
+    def test_mode_is_planned_with_a_note(self):
+        _, w = make(self.saved("snapback-test-t1", 2), desk("tv-on-scene"))
+        self.assertEqual((w["snapback-test-t1"].fullscreen, w["snapback-test-t1"].notes), (2, ["full screen"]))
+        _, w = make(self.saved("snapback-test-t1", 1), desk("tv-on-scene"))
+        self.assertEqual((w["snapback-test-t1"].fullscreen, w["snapback-test-t1"].notes), (1, ["full width"]))
+
+    def test_saved_box_is_the_screens_so_it_is_not_its_tile_or_spot(self):
+        _, w = make(self.saved("snapback-test-t1", 2), desk("tv-on-scene"))
+        self.assertIsNone(w["snapback-test-t1"].tile_box)
+        self.assertIsNone(w["snapback-test-t1"].tile)
+        _, w = make(self.saved("snapback-test-f1", 2), desk("tv-on-scene"))
+        self.assertIsNone(w["snapback-test-f1"].geometry)
+        self.assertIsNotNone(w["snapback-test-t2"].tile_box)
+
+    def test_not_full_screen_yet_is_not_in_place(self):
+        _, w = make(self.saved("snapback-test-t1", 2), desk("tv-on-scene"))
+        self.assertEqual(w["snapback-test-t1"].action, "move")
+
+    def test_full_screen_now_but_not_saved_so_is_not_in_place(self):
+        source = desk("tv-on-scene")
+        next(c for c in source.snapshot["clients"] if c["initialClass"] == "snapback-test-t2")["fullscreen"] = 2
+        _, w = make(saved_scene(), source)
+        self.assertEqual(w["snapback-test-t2"].action, "move")
+
+    def test_waiting_for_its_monitor_ignores_full_screen(self):
+        _, w = make(self.saved("com.t3tools.T3Code", 2), desk("tv-unplugged"))
+        t3 = w["com.t3tools.T3Code"]
+        self.assertTrue(t3.waiting)
+        self.assertIn("not made full screen while its monitor is away", t3.notes)
+
+    def test_odd_values_mean_not_full_screen(self):
+        for value in (None, 0, 3, -1):
+            self.assertEqual(plan.fullscreen_mode({"fullscreen": value}), 0)
+        self.assertEqual(plan.fullscreen_mode({}), 0)
+
+
 class Changes(unittest.TestCase):
     def test_moved_floating_window_is_put_back(self):
         source = desk("tv-on-scene")

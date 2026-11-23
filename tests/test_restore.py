@@ -111,6 +111,17 @@ class FakeDesk:
                 client["size"] = [args["x"], args["y"]]
         elif method == "window.move":
             self._by(args["window"])["at"] = [args["x"], args["y"]]
+        elif method == "window.fullscreen":
+            client = self._by(args["window"])
+            mode = {"maximized": 1, "fullscreen": 2}[args["mode"]]
+            if args["action"] == "unset":
+                if client["fullscreen"] == mode:
+                    client["fullscreen"] = 0
+            else:  # one full screen window per workspace
+                for other in self._clients:
+                    if other["workspace"] == client["workspace"]:
+                        other["fullscreen"] = 0
+                client["fullscreen"] = mode
         elif method == "window.swap":
             a, b = self._by(args["window"]), self._by(args["target"])
             for key in ("at", "size", "workspace", "monitor"):
@@ -119,6 +130,11 @@ class FakeDesk:
             self.focused = args["window"].split(":", 1)[1]
             client = self._by(args["window"])
             ws = client["workspace"]["name"]
+            # Omarchy's on_focus_under_fullscreen = 1: the focused window takes it over.
+            over = next((c for c in self._clients if c["workspace"]["name"] == ws and c["fullscreen"]
+                         and c is not client and not client["floating"]), None)
+            if over:
+                client["fullscreen"], over["fullscreen"] = over["fullscreen"], 0
             self.last_focused[ws] = self.focused
             if ws.isdigit():
                 self._show(self._ws_monitor(ws), ws)
@@ -551,6 +567,97 @@ class Failures(unittest.TestCase):
         last = [c for c in fake.calls if c[0] == "focus" and "window" in c[1]][-1]
         self.assertNotEqual(last[1]["window"], f"address:{hidden}")
 
+
+
+class Fullscreen(unittest.TestCase):
+    """t1 and t2 tile ws 22 on DP-3, which is on screen."""
+
+    def run_with(self, saved_modes, now_modes=None, source=None, focused=None):
+        source = source or desk("tv-on-scene")
+        for c in source.snapshot["clients"]:
+            c["fullscreen"] = (now_modes or {}).get(c["initialClass"], 0)
+        session = saved_scene()
+        for w in session["windows"]:
+            w["fullscreen"] = saved_modes.get(w["app"], 0)
+        p = plan.build(session, source, ENTRIES, default_terminal="foot.desktop", is_dir=lambda path: True)
+        fake = FakeDesk(source)
+        if focused:
+            fake.focused = next(c["address"] for c in fake._clients if c["initialClass"] == focused)
+        return p, fake, restore.run(p, fake)
+
+    def mode(self, fake, app):
+        return next(c["fullscreen"] for c in fake._clients if c["initialClass"] == app)
+
+    def test_a_window_saved_full_screen_goes_full_screen(self):
+        _, fake, report = self.run_with({"snapback-test-t1": 2})
+        t1 = next(r.address for r in report.results if r.step.app == "snapback-test-t1")
+        self.assertEqual(self.mode(fake, "snapback-test-t1"), 2)
+        self.assertIn(("window.fullscreen", {"mode": "fullscreen", "action": "set",
+                                             "window": f"address:{t1}"}), fake.calls)
+        self.assertEqual(report.errors, [])
+
+    def test_full_width_comes_back_as_full_width(self):
+        _, fake, _ = self.run_with({"snapback-test-t1": 1})
+        self.assertEqual(self.mode(fake, "snapback-test-t1"), 1)
+        self.assertNotIn("fullscreen", [a.get("mode") for m, a in fake.calls if m == "window.fullscreen"])
+
+    def test_full_screen_comes_after_the_tiles_and_views(self):
+        _, fake, _ = self.run_with({"snapback-test-t1": 2})
+        methods = [m for m, _ in fake.calls]
+        last_fullscreen = len(methods) - 1 - methods[::-1].index("window.fullscreen")
+        self.assertEqual(methods[last_fullscreen + 1:], ["focus"])  # only the refocus after it
+
+    def test_a_window_full_screen_now_but_not_saved_so_leaves_it_before_moving(self):
+        source = desk("tv-on-scene")
+        t1 = next(c for c in source.snapshot["clients"] if c["initialClass"] == "snapback-test-t1")
+        t1["workspace"] = {"id": 2, "name": "2"}
+        _, fake, _ = self.run_with({}, {"snapback-test-t1": 2}, source=source)
+        self.assertEqual(self.mode(fake, "snapback-test-t1"), 0)
+        self.assertEqual(fake._by("address:" + t1["address"])["workspace"]["name"], "22")
+        methods = [m for m, a in fake.calls]
+        self.assertLess(methods.index("window.fullscreen"), methods.index("window.move"))
+
+    def test_the_right_mode_already_needs_nothing(self):
+        p, fake, report = self.run_with({"snapback-test-t1": 2}, {"snapback-test-t1": 2})
+        self.assertEqual(report.count("in-place"), 9)
+        self.assertNotIn("window.fullscreen", [m for m, _ in fake.calls])
+
+    def test_the_wrong_mode_is_swapped(self):
+        _, fake, _ = self.run_with({"snapback-test-t1": 2}, {"snapback-test-t1": 1})
+        self.assertEqual(self.mode(fake, "snapback-test-t1"), 2)
+
+    def test_a_window_waiting_for_its_monitor_is_left_as_it_is(self):
+        # T3 Code waits on DP-2 for the TV.
+        source = desk("tv-unplugged")
+        p, fake, _ = self.run_with({"com.t3tools.T3Code": 2}, source=source)
+        self.assertTrue(next(w for w in p.windows if w.app == "com.t3tools.T3Code").waiting)
+        self.assertEqual(self.mode(fake, "com.t3tools.T3Code"), 0)
+        self.assertNotIn("window.fullscreen", [m for m, _ in fake.calls])
+
+    def test_a_waiting_window_full_screen_now_stays_so_while_it_moves(self):
+        source = desk("tv-unplugged")
+        _, fake, report = self.run_with({}, {"com.t3tools.T3Code": 2}, source=source)
+        t3 = next(r for r in report.results if r.step.app == "com.t3tools.T3Code")
+        self.assertEqual((t3.outcome, t3.step.waiting), ("placed", True))
+        self.assertEqual(self.mode(fake, "com.t3tools.T3Code"), 2)
+
+    def test_focus_goes_to_the_full_screen_window_not_under_it(self):
+        _, fake, _ = self.run_with({"snapback-test-t1": 2}, focused="snapback-test-t2")
+        self.assertEqual(self.mode(fake, "snapback-test-t1"), 2)
+        self.assertEqual(fake._by("address:" + fake.focused)["initialClass"], "snapback-test-t1")
+
+    def test_a_refused_full_screen_is_an_error_not_a_crash(self):
+        source = desk("tv-on-scene")
+        for c in source.snapshot["clients"]:
+            c["fullscreen"] = 0
+        session = saved_scene()
+        next(w for w in session["windows"] if w["app"] == "snapback-test-t1")["fullscreen"] = 2
+        p = plan.build(session, source, ENTRIES, default_terminal="foot.desktop", is_dir=lambda path: True)
+        fake = FakeDesk(source, fail={"window.fullscreen"})
+        report = restore.run(p, fake)
+        self.assertEqual(len(report.errors), 1)
+        self.assertIn("snapback-test-t1", report.errors[0])
+        self.assertTrue(fake.option)
 
 
 class SwitchTo(unittest.TestCase):

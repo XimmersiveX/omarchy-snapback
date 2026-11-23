@@ -84,6 +84,7 @@ class WindowStep:
     slot: int | None = None
     waiting: bool = False             # owner monitor not plugged in
     floating: bool = False
+    fullscreen: int = 0               # 0, 1 full width (maximized) or 2 full screen, as saved
     geometry: Rect | None = None      # floating windows only; None = leave as is
     tile: tuple[float, float] | None = None  # tiled: saved center as a fraction of the monitor
     tile_box: tuple[float, float, float, float] | None = None  # tiled: saved (x0, y0, x1, y1), same
@@ -132,6 +133,16 @@ class Plan:
             "elsewhere": self.elsewhere,
             "summary": {a: self.count(a) for a in ("launch", "move", "in-place", "skip", "problem")},
         }
+
+
+FULLSCREEN_NOTES = {1: "full width", 2: "full screen"}
+
+
+def fullscreen_mode(saved: dict) -> int:
+    """How a saved window filled its screen: 0 not, 1 full width (Hyprland's
+    maximized: the workspace's area, bar still shown), 2 full screen."""
+    mode = int(saved.get("fullscreen") or 0)
+    return mode if mode in FULLSCREEN_NOTES else 0
 
 
 def terminal_command(cwd: str | None) -> list[str]:
@@ -193,7 +204,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
     steps = []
     for index, saved in enumerate(session["windows"]):
         step = WindowStep(saved["app"], saved.get("title", ""), "problem",
-                          floating=bool(saved.get("floating")))
+                          floating=bool(saved.get("floating")), fullscreen=fullscreen_mode(saved))
         steps.append(step)
         reason = saved.get("skip")
         if reason or never(saved["app"]) or (saved.get("launch") and never(saved["launch"]["entry"])):
@@ -214,7 +225,12 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
                 number, step.monitor, step.owner or "", existing.get(number), step.waiting)
 
         match = matches.get(index)
-        placement = saved.get("placement")
+        # A full screen window was saved with the screen's box, not its own:
+        # it keeps whatever size and tile it gets.
+        placement = None if step.fullscreen else saved.get("placement")
+        if step.fullscreen:
+            step.notes.append(FULLSCREEN_NOTES[step.fullscreen] if not step.waiting
+                              else f"not made {FULLSCREEN_NOTES[step.fullscreen]} while its monitor is away")
         if step.floating and placement and not step.waiting:
             # Back on its own monitor or, for a special workspace or a session
             # without Omarchy, on whichever screen will show it.
@@ -235,6 +251,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
             step.window, step.now = current.address, current.workspace
             in_place = (current.workspace == step.workspace
                         and current.floating == step.floating
+                        and (step.waiting or current.fullscreen == step.fullscreen)
                         and (step.geometry is None
                              or _close(_rect(clients[current.address]), step.geometry)))
             step.action = "in-place" if in_place else "move"

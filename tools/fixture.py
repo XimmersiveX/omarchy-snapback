@@ -44,11 +44,7 @@ def scrub(name: str) -> None:
 
     home = str(Path.home())
     user = getpass.getuser()
-    replacements = {home: "/home/user", home.replace("/", "_"): "_home_user"}
-    for i, mon in enumerate(snapshot["monitors"], start=1):
-        serial = mon.get("serial") or ""
-        if serial:
-            replacements[serial] = ("#" if serial.startswith("#") else "") + f"SERIAL{i}"
+    replacements = {home: "/home/user", home.replace("/", "_"): "_home_user", **serial_map()}
     titles: dict[str, str] = {}
 
     def text(value: str) -> str:
@@ -85,8 +81,24 @@ def scrub(name: str) -> None:
     target.mkdir(parents=True, exist_ok=True)
     for filename, body in files.items():
         (target / filename).write_text(body)
-    print(f"scrubbed {target.relative_to(ROOT)} ({len(titles)} titles, "
-          f"{len(replacements) - 2} serials replaced)")
+    print(f"scrubbed {target.relative_to(ROOT)} ({len(titles)} titles)")
+
+
+def serial_map() -> dict[str, str]:
+    """Every monitor serial seen in any raw recording -> a stable placeholder.
+
+    Numbered by connector name, so the same monitor gets the same placeholder
+    in every fixture, even one recorded while that monitor was unplugged and
+    appears only in Omarchy's state files.
+    """
+    seen: dict[str, str] = {}  # serial -> connector it was first seen on
+    for snapshot_file in sorted(RAW.glob("*/snapshot.json")):
+        for mon in json.loads(snapshot_file.read_text())["monitors"]:
+            if mon.get("serial"):
+                seen.setdefault(mon["serial"], mon["name"])
+    ordered = sorted(seen, key=lambda serial: (seen[serial], serial))
+    return {serial: ("#" if serial.startswith("#") else "") + f"SERIAL{i}"
+            for i, serial in enumerate(ordered, start=1)}
 
 
 def _pacman_version(package: str) -> str | None:

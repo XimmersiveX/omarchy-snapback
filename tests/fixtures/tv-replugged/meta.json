@@ -1,0 +1,4 @@
+{
+  "note": "HDMI-A-1 re-enabled. Omarchy restored merged ws14->2 correctly but ws13->3 (not 1): Hyprland had created an empty ws1 on the returning TV, and restore() only renumbers when the old number is free. Chromium (originally TV ws1) ended up on ws3.",
+  "omarchy": "4.5.0-3"
+}

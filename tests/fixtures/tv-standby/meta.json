@@ -1,0 +1,4 @@
+{
+  "note": "TV powered off by remote, but HDMI stays connected: Hyprland still reports HDMI-A-1 enabled, dpms on; no Omarchy merge. User moved T3 Code to ws22 to keep reading.",
+  "omarchy": "4.5.0-3"
+}

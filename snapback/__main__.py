@@ -6,6 +6,7 @@
     python -m snapback watch [--verbose]
     python -m snapback login
     python -m snapback setup [--remove]
+    python -m snapback status [--json]
     python -m snapback doctor
 """
 
@@ -19,7 +20,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, apps, config, hypr, omarchy, plan, restore, session, setup, watch
+from . import __version__, apps, config, hypr, omarchy, plan, restore, session, setup, status, watch
 from .capture import Source, capture
 
 TESTED_HYPRLAND = ("v0.56",)
@@ -124,13 +125,20 @@ def cmd_restore(args: argparse.Namespace) -> int:
             show_plan(result, source)
         return 0
 
+    trigger = "login" if args.at_login else "manual"
     with restore.Lock():
         log = (lambda line: None) if args.json else (lambda line: print(f"  {line}"))
-        report = restore.run(result, restore.LiveDesk(), timeout=args.timeout, log=log)
+        try:
+            report = restore.run(result, restore.LiveDesk(), timeout=args.timeout, log=log)
+        except (restore.RestoreError, hypr.HyprError) as exc:
+            status.record_restore(status.restore_record(path.stem, trigger, error=str(exc)))
+            raise
     # Check: planned again now, everything should already be in place.
     after = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal,
                        loose=args.at_login)
     off = [w for w in after.windows if w.action not in ("in-place", "skip", "problem")]
+    status.record_restore(status.restore_record(
+        path.stem, trigger, report.to_dict(), check=[w.to_dict() for w in off]))
     if args.json:
         print(json.dumps({**report.to_dict(), "check": [w.to_dict() for w in off]}, indent=2))
     else:
@@ -288,9 +296,11 @@ def cmd_login(args: argparse.Namespace) -> int:
             with restore.Lock():
                 report = restore.run(result, restore.LiveDesk(), timeout=args.timeout)
             print(json.dumps(report.to_dict()), flush=True)
+            status.record_restore(status.restore_record("last", "login", report.to_dict()))
             notify(*login_summary(report))
         except (session.SessionError, restore.RestoreError, hypr.HyprError, config.ConfigError) as exc:
             print(f"snapback: restore failed: {exc}", file=sys.stderr, flush=True)
+            status.record_restore(status.restore_record("last", "login", error=str(exc)))
             notify("Snapback couldn't restore your windows",
                    f"{exc}\nYour session is kept as 'previous'.", urgent=True)
     return cmd_watch(args)
@@ -327,6 +337,47 @@ def cmd_setup(args: argparse.Namespace) -> int:
     else:
         setup.start("watch")
         print("Started watching this session (systemd user unit 'snapback').")
+    return 0
+
+
+def current_status() -> dict:
+    return status.snapshot(
+        hook=status.hook_state(setup.hook_path(), setup.MARKER),
+        watching=setup.unit_running(),
+        restoring=watch.restore_running(),
+        version=__version__,
+        entries=apps.load_entries(apps.data_dirs()),
+    )
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    snap = current_status()
+    if args.json:
+        print(json.dumps(snap, indent=2))
+        return 0
+    at_login = {"on": "on", "off": "off",
+                "foreign": f"off ({setup.hook_path()} exists but wasn't written by Snapback)"}
+    print(f"Restore at login: {at_login[snap['atLogin']]}")
+    print(f"Autosave: {'running' if snap['watching'] else 'not running'}")
+    if snap["restoring"]:
+        print("A restore is running.")
+    print()
+    print(f"Sessions ({len(snap['sessions'])})")
+    for s in snap["sessions"]:
+        if "error" in s:
+            print(f"  {s['name']:<10} !! {s['error']}")
+            continue
+        print(f"  {s['name']:<10} {s['saved_at']}  {s['windows']} window(s): {', '.join(s['apps'])}")
+    last = snap["lastRestore"]
+    if last:
+        c = last["counts"]
+        print()
+        print(f"Last restore: {last['session']!r} ({last['trigger']}) at {last['at']}: "
+              f"{c['placed'] + c['in-place']} back"
+              + (f", {len(last['problems'])} couldn't be restored" if last["problems"] else "")
+              + (f", {last['misplaced']} not where they belong" if last["misplaced"] else ""))
+        for e in last["errors"]:
+            print(f"  FAIL  {e}")
     return 0
 
 
@@ -403,6 +454,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--remove", action="store_true", help="undo it (saved sessions are kept)")
     p.add_argument("--no-start", action="store_true", help="don't start watching this session now")
     p.set_defaults(func=cmd_setup)
+
+    p = sub.add_parser("status", help="is Snapback on, what's saved, how the last restore went")
+    p.add_argument("--json", action="store_true", help="print it as JSON (what the panel reads)")
+    p.set_defaults(func=cmd_status)
 
     p = sub.add_parser("doctor", help="check this system is one Snapback understands")
     p.set_defaults(func=cmd_doctor)

@@ -22,9 +22,14 @@ Order matters:
        forgets them when their numbers are made again.
     3. Move open windows into place.
     4. Launch the rest, catch each new window by its app class, and place it.
-       A launched window first appears wherever Hyprland opens it and is then
-       moved silently. Exec rules can't do better: they match the process
-       Hyprland spawned, and uwsm-app hands the app to another process.
+       While they launch, a window rule per app opens its next window straight
+       on that window's workspace, out of sight, instead of on the screen in
+       front of you. Exec rules can't do that: they match the process Hyprland
+       spawned, and uwsm-app hands the app to another process. A rule can't
+       tell two windows of one app apart, so after each window is caught it
+       points at the next one's workspace, and a window that still opens
+       somewhere else is moved as before. The rules go when the launches are
+       done, and a timer inside Hyprland removes them if Snapback dies first.
        Browser windows with saved tabs are opened one at a time, each caught
        before the next, as their titles can't tell them apart.
     5. Put tiled windows back in their layout. Reopened apps arrive in any
@@ -88,6 +93,7 @@ class Desk(Protocol):
     def dispatch(self, method: str, **args: object) -> None: ...
     def layout(self, message: str) -> None: ...
     def launch(self, command: list[str]) -> None: ...
+    def set_open_rules(self, rules: dict[str, str], failsafe_ms: int | None = None) -> None: ...
     def focus_on_activate(self) -> bool: ...
     def set_focus_on_activate(self, on: bool, failsafe_ms: int | None = None) -> None: ...
     def sleep(self, seconds: float) -> None: ...
@@ -120,6 +126,25 @@ class LiveDesk:
         # an app scope of its own anyway.
         subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
+
+    def set_open_rules(self, rules: dict[str, str], failsafe_ms: int | None = None) -> None:
+        """Make these Snapback's window rules (app class -> workspace a new
+        window of it opens on, silently), replacing the ones before."""
+        off = ("for _, name in ipairs(_G.snapback_open or {}) do "
+               "hl.window_rule({ name = name, enabled = false }) end _G.snapback_open = {} ")
+        code = off
+        for i, (app, workspace) in enumerate(sorted(rules.items())):
+            name = f"snapback-open-{i}"
+            code += (f"hl.window_rule({{ name = {hypr.lua(name)}, enabled = true, "
+                     f"match = {{ class = {hypr.lua('^' + _regex(app) + '$')} }}, "
+                     f"workspace = {hypr.lua(workspace + ' silent')} }}) "
+                     f"table.insert(_G.snapback_open, {hypr.lua(name)}) ")
+        token = f"{os.getpid()}-{time.monotonic_ns()}"
+        code += f"_G.snapback_open_token = {hypr.lua(token)} "
+        if rules and failsafe_ms:
+            code += (f"hl.timer(function() if _G.snapback_open_token == {hypr.lua(token)} then {off}end end, "
+                     f"{{type=\"oneshot\", timeout={failsafe_ms}}})")
+        hypr.evaluate(code)
 
     def focus_on_activate(self) -> bool:
         return bool(hypr.option("misc:focus_on_activate"))
@@ -299,6 +324,35 @@ def _launch(launches: list[WindowStep], desk: Desk, report: Report, timeout: flo
     """Launch these, catch each new window by its app class, and place it."""
     if not launches:
         return
+    rules: dict[str, str] = {}
+
+    def aim(pending: list[WindowStep]) -> None:
+        # Each app's next window opens on the workspace of its first window still to come.
+        nonlocal rules
+        wanted = {}
+        for step in pending:
+            if step.workspace and step.app not in wanted:
+                wanted[step.app] = step.workspace
+        if wanted != rules:
+            try:
+                desk.set_open_rules(wanted, int(timeout * 1000) + 10_000)
+                rules = wanted
+            except hypr.HyprError as exc:
+                log(f"couldn't set the window rules that open windows in place: {exc}")
+
+    aim(launches)
+    try:
+        _launch_and_catch(launches, desk, report, timeout, poll, log, aim)
+    finally:
+        if rules:
+            try:
+                desk.set_open_rules({})
+            except hypr.HyprError as exc:
+                report.errors.append(f"couldn't remove Snapback's window rules: {exc}")
+
+
+def _launch_and_catch(launches: list[WindowStep], desk: Desk, report: Report, timeout: float, poll: float,
+                      log, aim) -> None:
     before = {c["address"] for c in desk.clients()}
     for step in launches:
         try:
@@ -323,6 +377,7 @@ def _launch(launches: list[WindowStep], desk: Desk, report: Report, timeout: flo
                         continue
                     claimed.add(client["address"])
                     pending.remove(step)
+                    aim(pending)
                     report.results.append(_place(desk, step, client["address"], log))
                     break
         if pending:
@@ -605,6 +660,11 @@ def _refocus(desk: Desk, focused: str | None, plan: Plan, report: Report) -> Non
             desk.dispatch("focus", window=f"address:{target}")
         except hypr.HyprError as exc:
             report.errors.append(f"couldn't give focus back: {exc}")
+
+
+def _regex(text: str) -> str:
+    """`text` as a regular expression that matches just it."""
+    return "".join("\\" + ch if ch in ".^$*+?()[]{}|\\" else ch for ch in text)
 
 
 def _client(desk: Desk, address: str) -> dict | None:

@@ -1,6 +1,7 @@
 """Running a restore against a fake desktop that records every call."""
 
 import copy
+import itertools
 import unittest
 
 from snapback import hypr, plan, restore
@@ -44,6 +45,9 @@ class FakeDesk:
         self.preselect = None
         self.last_focused = {}          # workspace name -> address
         self.trees = {}                 # workspace name -> tree, built on first change
+        self.rules = {}                 # app class -> workspace its new windows open on
+        self.rule_calls = []            # (rules, failsafe) for each set_open_rules
+        self.opened_on = {}             # address -> workspace a launched window first appeared on
         if self.focused:
             self.last_focused[self._by("address:" + self.focused)["workspace"]["name"]] = self.focused
 
@@ -57,6 +61,13 @@ class FakeDesk:
                 self._clients.remove(client)
         while self.queue and self.queue[0][0] <= self.clock:
             client = self.queue.pop(0)[1]
+            ws = self.rules.get(client["class"])
+            if ws:  # Hyprland applies a window rule as the window opens
+                client["workspace"] = {"id": int(ws) if ws.isdigit() else -98, "name": ws}
+                if ws.isdigit() and not any(w["id"] == int(ws) for w in self._workspaces):
+                    self._workspaces.append({"id": int(ws), "name": ws, "monitor": self.names[self.opens_on],
+                                             "windows": 1})
+            self.opened_on[client["address"]] = client["workspace"]["name"]
             self._clients.append(client)
             self._insert(client)
         return copy.deepcopy(self._clients)
@@ -157,6 +168,12 @@ class FakeDesk:
                 "mapped": True, "hidden": False, "floating": False, "monitor": self.opens_on,
                 "workspace": dict(ws), "at": [0, 0], "size": [100, 100],
                 "pid": 1, "fullscreen": 0, "pinned": False, "grouped": [], "focusHistoryID": 5}))
+
+    def set_open_rules(self, rules, failsafe_ms=None):
+        if "rules" in self.fail:
+            raise hypr.HyprError("eval refused")
+        self.rule_calls.append((dict(rules), failsafe_ms))
+        self.rules = dict(rules)
 
     def focus_on_activate(self):
         return self.option
@@ -852,3 +869,63 @@ class BrowserTabs(unittest.TestCase):
                             if m == "window.close" and _ != f"address:{old}"))
         self.assertEqual(len(report.closed), len(p.others))
         self.assertNotIn(old, {c["address"] for c in fake.clients()})
+
+
+class OpenInPlace(unittest.TestCase):
+    """Launched windows open straight on their workspace, not on the screen in front."""
+
+    def run_restore(self, session=None, fail=None):
+        source = empty(desk("tv-on-scene"))
+        p = plan.build(session or saved_scene(), source, ENTRIES, default_terminal="foot.desktop",
+                       is_dir=lambda path: True)
+        fake = FakeDesk(source, OPENS, fail=fail)
+        return p, fake, restore.run(p, fake, timeout=10)
+
+    def test_each_launched_window_opens_on_its_own_workspace(self):
+        p, fake, report = self.run_restore()
+        staging = next(i for i, (m, a) in enumerate(fake.calls) if a.get("workspace") == restore.STAGING)
+        placing = fake.calls[:staging]  # before the layout is rebuilt
+        for r in report.results:
+            if r.step.action == "launch":
+                self.assertEqual((r.outcome, fake.opened_on[r.address]), ("placed", r.step.workspace), r.step.app)
+                self.assertNotIn(("window.move", {"window": f"address:{r.address}",
+                                                  "workspace": r.step.workspace, "follow": False}), placing)
+        first, failsafe = fake.rule_calls[0]
+        self.assertEqual(first, {s.app: s.workspace for s in p.windows if s.action == "launch"})
+        self.assertGreater(failsafe, 10_000)  # outlives the launch timeout
+
+    def test_the_rules_are_gone_afterwards(self):
+        _, fake, _ = self.run_restore()
+        self.assertEqual(fake.rule_calls[-1][0], {})
+        self.assertEqual(fake.rules, {})
+
+    def test_the_rule_moves_on_to_the_apps_next_window(self):
+        session = saved_scene()
+        first = next(w for w in session["windows"] if w["app"] == "snapback-test-t1")
+        second = copy.deepcopy(first)
+        second["slot"] = 5  # ws 25
+        session["windows"].append(second)
+        p, fake, report = self.run_restore(session)
+        terminals = [s.workspace for s in p.windows if s.app == "snapback-test-t1"]
+        self.assertEqual(terminals, ["22", "25"])
+        aimed = [rules.get("snapback-test-t1") for rules, _ in fake.rule_calls]
+        self.assertEqual([ws for ws, _ in itertools.groupby(aimed)], ["22", "25", None])
+        got = sorted(fake._by("address:" + r.address)["workspace"]["name"]
+                     for r in report.results if r.step.app == "snapback-test-t1")
+        self.assertEqual(got, ["22", "25"])
+
+    def test_without_rules_windows_are_still_moved_into_place(self):
+        _, fake, report = self.run_restore(fail={"rules"})
+        self.assertEqual(report.errors, [])
+        for r in report.results:
+            if r.step.action == "launch":
+                self.assertEqual(r.outcome, "placed")
+                self.assertEqual(fake._by("address:" + r.address)["workspace"]["name"], r.step.workspace)
+
+    def test_the_rules_go_even_when_a_window_never_appears(self):
+        source = empty(desk("tv-on-scene"))
+        p = plan.build(saved_scene(), source, ENTRIES, default_terminal="foot.desktop", is_dir=lambda path: True)
+        fake = FakeDesk(source, {k: v for k, v in OPENS.items() if k != "t3code.desktop"})
+        report = restore.run(p, fake, timeout=5)
+        self.assertEqual(next(r for r in report.results if r.step.app == "com.t3tools.T3Code").outcome, "failed")
+        self.assertEqual(fake.rules, {})

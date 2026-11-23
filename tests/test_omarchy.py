@@ -61,5 +61,44 @@ class Missing(unittest.TestCase):
         self.assertEqual(state.merged, {})
 
 
+class Layouts(unittest.TestCase):
+    """Omarchy 4.5 keeps the files in omarchy/; later versions in omarchy/monitors/."""
+
+    def write(self, root, blocks, merged, text_blocks, text_merged):
+        for name, text in ((blocks, text_blocks), (merged, text_merged)):
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+
+    def test_new_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write(root, "monitors/workspaces", "monitors/workspaces-merged", BLOCKS, "13\t1\tLG TV SERIAL3\n")
+            state = WorkspaceState.load(root)
+        self.assertTrue(state.found)
+        self.assertEqual(state.blocks["LG TV SERIAL3"], 0)
+        self.assertEqual(state.owner(13), ("LG TV SERIAL3", 1))
+
+    def test_old_layout_wins_until_migrated(self):
+        # Omarchy's migration lets the old files win: anything under monitors/
+        # before it ran was written from nothing by a config reload.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write(root, "monitor-workspaces", "monitor-workspaces-merged", BLOCKS, "13\t1\tLG TV SERIAL3\n")
+            self.write(root, "monitors/workspaces", "monitors/workspaces-merged", "0\tDP-2\tSomething Else\n", "")
+            state = WorkspaceState.load(root)
+        self.assertEqual(state.blocks["LG TV SERIAL3"], 0)
+        self.assertNotIn("Something Else", state.blocks)
+        self.assertEqual(state.owner(13), ("LG TV SERIAL3", 1))
+
+    def test_merged_comes_from_the_same_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write(root, "monitors/workspaces", "monitors/workspaces-merged", BLOCKS, "")
+            (root / "monitor-workspaces-merged").write_text("13\t1\tLG TV SERIAL3\n")
+            state = WorkspaceState.load(root)
+        self.assertEqual(state.merged, {})
+
+
 if __name__ == "__main__":
     unittest.main()

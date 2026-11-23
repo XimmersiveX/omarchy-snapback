@@ -9,6 +9,13 @@ each one came from. See default/hypr/monitor-workspaces.lua in Omarchy.
 File formats (tab-separated, one entry per line):
     monitor-workspaces          <block>  <connector or empty>  <identity>
     monitor-workspaces-merged   <current ws id>  <original ws id>  <identity>
+
+Where they live under ~/.local/state/omarchy/:
+    Omarchy 4.5:    monitor-workspaces, monitor-workspaces-merged
+    later versions: monitors/workspaces, monitors/workspaces-merged
+Migration 1793461630 moves the old pair to the new place and lets the old pair
+win when both exist, so read the old pair if it is there and the new one if not.
+Snapback's own fixtures always use the old names.
 """
 
 from __future__ import annotations
@@ -20,11 +27,29 @@ from pathlib import Path
 SLOTS = 10
 BLOCKS_FILE = "monitor-workspaces"
 MERGED_FILE = "monitor-workspaces-merged"
+LAYOUTS = (
+    (BLOCKS_FILE, MERGED_FILE),
+    ("monitors/workspaces", "monitors/workspaces-merged"),
+)
 
 
 def state_dir() -> Path:
     base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local/state")
     return Path(base) / "omarchy"
+
+
+def state_files(directory: Path | None = None) -> tuple[Path, Path]:
+    """Omarchy's (blocks, merged) files in `directory`, in whichever layout is there.
+
+    When neither layout has a blocks file, the newest layout's paths are
+    returned, which don't exist.
+    """
+    directory = directory or state_dir()
+    for blocks, merged in LAYOUTS:
+        if (directory / blocks).exists():
+            return directory / blocks, directory / merged
+    blocks, merged = LAYOUTS[-1]
+    return directory / blocks, directory / merged
 
 
 @dataclass
@@ -53,8 +78,8 @@ class WorkspaceState:
 
     @classmethod
     def load(cls, directory: Path | None = None) -> "WorkspaceState":
-        directory = directory or state_dir()
-        return cls.parse(_read(directory / BLOCKS_FILE), _read(directory / MERGED_FILE))
+        blocks, merged = state_files(directory)
+        return cls.parse(_read(blocks), _read(merged))
 
     def owner(self, workspace_id: int) -> tuple[str, int] | None:
         """The (monitor identity, slot 1-10) a regular workspace belongs to.

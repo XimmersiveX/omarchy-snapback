@@ -92,12 +92,11 @@ def capture(source: Source) -> list[CapturedWindow]:
 
 def record_files(directory: Path, source_dir: Path | None = None) -> None:
     """Write a live snapshot and Omarchy's state files into `directory`."""
-    from .omarchy import state_dir
+    from .omarchy import state_files
 
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "snapshot.json").write_text(json.dumps(hypr.snapshot(), indent=2) + "\n")
-    origin = source_dir or state_dir()
-    for name in (BLOCKS_FILE, MERGED_FILE):
-        path = origin / name
+    # Fixtures keep Omarchy 4.5's file names whatever layout the live files use.
+    for name, path in zip((BLOCKS_FILE, MERGED_FILE), state_files(source_dir)):
         if path.exists():
             (directory / name).write_text(path.read_text())

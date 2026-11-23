@@ -1,0 +1,103 @@
+"""Turn a Hyprland snapshot into Snapback's description of each window.
+
+Read-only: nothing here changes the desktop.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+from . import hypr
+from .geometry import Monitor, Placement, Rect, monitors_from_hypr, relative
+from .omarchy import BLOCKS_FILE, MERGED_FILE, WorkspaceState
+
+
+@dataclass
+class Source:
+    """A Hyprland snapshot plus Omarchy's workspace records, live or recorded."""
+
+    snapshot: dict
+    workspaces: WorkspaceState
+
+    @classmethod
+    def live(cls) -> "Source":
+        return cls(hypr.snapshot(), WorkspaceState.load())
+
+    @classmethod
+    def from_dir(cls, directory: Path) -> "Source":
+        snapshot = json.loads((directory / "snapshot.json").read_text())
+        return cls(snapshot, WorkspaceState.load(directory))
+
+    def monitors(self) -> list[Monitor]:
+        return monitors_from_hypr(self.snapshot["monitors"], self.workspaces.connectors)
+
+
+@dataclass
+class CapturedWindow:
+    address: str
+    app: str                    # initialClass, the most stable name for the app
+    title: str
+    pid: int
+    workspace: str              # "3" for regular, "special:name" for special
+    owner: str | None           # identity of the monitor the workspace belongs to
+    slot: int | None            # 1-10 within that monitor's block
+    shown_on: str | None        # identity of the monitor displaying it right now
+    floating: bool
+    fullscreen: int
+    pinned: bool
+    grouped: bool
+    placement: Placement | None
+
+    def to_dict(self) -> dict:
+        data = self.__dict__.copy()
+        data["placement"] = self.placement.to_dict() if self.placement else None
+        return data
+
+
+def capture(source: Source) -> list[CapturedWindow]:
+    monitors = source.monitors()
+    by_id = {m["id"]: m["name"] for m in source.snapshot["monitors"]}
+    by_name = {m.name: m for m in monitors}
+    windows = []
+    for client in source.snapshot["clients"]:
+        if not client.get("mapped") or client.get("hidden"):
+            continue
+        ws = client["workspace"]
+        monitor = by_name.get(by_id.get(client.get("monitor")))
+        if ws["id"] > 0:
+            owner = source.workspaces.owner(ws["id"])
+            name = str(ws["id"])
+        else:
+            owner, name = None, ws["name"]
+        rect = Rect(*client["at"], *client["size"])
+        windows.append(CapturedWindow(
+            address=client["address"],
+            app=client.get("initialClass") or client.get("class") or "",
+            title=client.get("title", ""),
+            pid=client.get("pid", 0),
+            workspace=name,
+            owner=owner[0] if owner else None,
+            slot=owner[1] if owner else None,
+            shown_on=monitor.identity if monitor else None,
+            floating=bool(client.get("floating")),
+            fullscreen=int(client.get("fullscreen") or 0),
+            pinned=bool(client.get("pinned")),
+            grouped=bool(client.get("grouped")),
+            placement=relative(rect, monitor) if monitor else None,
+        ))
+    return windows
+
+
+def record_files(directory: Path, source_dir: Path | None = None) -> None:
+    """Write a live snapshot and Omarchy's state files into `directory`."""
+    from .omarchy import state_dir
+
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "snapshot.json").write_text(json.dumps(hypr.snapshot(), indent=2) + "\n")
+    origin = source_dir or state_dir()
+    for name in (BLOCKS_FILE, MERGED_FILE):
+        path = origin / name
+        if path.exists():
+            (directory / name).write_text(path.read_text())

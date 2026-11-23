@@ -1,5 +1,7 @@
-# Omarchy Wallpaper Theme
+# Snapback
 
-Generate an Omarchy theme from a wallpaper image.
+Save and restore your Omarchy windows and workspaces, so you can pick up exactly where you left off after a reboot or logout.
 
-Tracking request: https://github.com/omacom/omarchy/issues/8745
+An Omarchy shell plugin. Status: early development.
+
+Related requests: omacom/omarchy discussions #2123 and #472, and issues #8535 and #7085.

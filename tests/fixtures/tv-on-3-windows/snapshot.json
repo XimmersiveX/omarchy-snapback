@@ -1,0 +1,436 @@
+{
+  "version": {
+    "branch": "v0.56.2",
+    "commit": "efb50993780079460b0cbed1363e2166a2de1d9f",
+    "version": "0.56.2",
+    "dirty": false,
+    "commit_message": "[gha] Nix: update inputs",
+    "commit_date": "Wed Aug 5 14:13:21 2026",
+    "tag": "v0.56.2",
+    "commits": "7661",
+    "buildAquamarine": "0.15.1",
+    "buildHyprlang": "0.6.8",
+    "buildHyprutils": "0.14.2",
+    "buildHyprcursor": "0.1.13",
+    "buildHyprgraphics": "0.5.1",
+    "systemAquamarine": "0.15.1",
+    "systemHyprlang": "0.6.8",
+    "systemHyprutils": "0.14.2",
+    "systemHyprcursor": "0.1.13",
+    "systemHyprgraphics": "0.5.1",
+    "abiHash": "efb50993780079460b0cbed1363e2166a2de1d9f_aq_0.15_hu_0.14_hg_0.5_hc_0.1_hlg_0.6",
+    "flags": []
+  },
+  "monitors": [
+    {
+      "id": 1,
+      "name": "DP-2",
+      "description": "Ancor Communications Inc ROG PG279Q #SERIAL1",
+      "make": "Ancor Communications Inc",
+      "model": "ROG PG279Q",
+      "serial": "#SERIAL1",
+      "width": 2560,
+      "height": 1440,
+      "physicalWidth": 600,
+      "physicalHeight": 340,
+      "refreshRate": 143.998,
+      "x": 6400,
+      "y": 0,
+      "activeWorkspace": {
+        "id": 11,
+        "name": "11"
+      },
+      "specialWorkspace": {
+        "id": 0,
+        "name": ""
+      },
+      "reserved": [
+        0,
+        26,
+        0,
+        0
+      ],
+      "scale": 1,
+      "transform": 1,
+      "focused": false,
+      "dpmsStatus": true,
+      "vrr": false,
+      "solitary": "0",
+      "solitaryBlockedBy": [
+        "WINDOWED",
+        "CANDIDATE"
+      ],
+      "activelyTearing": false,
+      "tearingBlockedBy": [
+        "NOT_TORN",
+        "USER",
+        "CANDIDATE",
+        "HW_CURSOR"
+      ],
+      "directScanoutTo": "0",
+      "directScanoutBlockedBy": [
+        "USER",
+        "CANDIDATE"
+      ],
+      "disabled": false,
+      "currentFormat": "XRGB8888",
+      "mirrorOf": "none",
+      "availableModes": [
+        "2560x1440@59.95Hz",
+        "2560x1440@144.00Hz",
+        "2560x1440@120.00Hz",
+        "2560x1440@99.95Hz",
+        "2560x1440@84.98Hz",
+        "2560x1440@23.97Hz",
+        "1024x768@60.00Hz",
+        "800x600@60.32Hz",
+        "640x480@59.94Hz"
+      ],
+      "colorManagementPreset": "srgb",
+      "sdrBrightness": 1,
+      "sdrSaturation": 1,
+      "sdrMinLuminance": 0.2,
+      "sdrMaxLuminance": 80,
+      "hardwareCursorsInUse": true
+    },
+    {
+      "id": 2,
+      "name": "DP-3",
+      "description": "Ancor Communications Inc ROG PG279Q #SERIAL2",
+      "make": "Ancor Communications Inc",
+      "model": "ROG PG279Q",
+      "serial": "#SERIAL2",
+      "width": 2560,
+      "height": 1440,
+      "physicalWidth": 600,
+      "physicalHeight": 340,
+      "refreshRate": 143.998,
+      "x": 3840,
+      "y": 750,
+      "activeWorkspace": {
+        "id": 21,
+        "name": "21"
+      },
+      "specialWorkspace": {
+        "id": 0,
+        "name": ""
+      },
+      "reserved": [
+        0,
+        26,
+        0,
+        0
+      ],
+      "scale": 1,
+      "transform": 0,
+      "focused": false,
+      "dpmsStatus": true,
+      "vrr": false,
+      "solitary": "0",
+      "solitaryBlockedBy": [
+        "WINDOWED",
+        "CANDIDATE"
+      ],
+      "activelyTearing": false,
+      "tearingBlockedBy": [
+        "NOT_TORN",
+        "USER",
+        "CANDIDATE",
+        "HW_CURSOR"
+      ],
+      "directScanoutTo": "0",
+      "directScanoutBlockedBy": [
+        "USER",
+        "CANDIDATE"
+      ],
+      "disabled": false,
+      "currentFormat": "XRGB8888",
+      "mirrorOf": "none",
+      "availableModes": [
+        "2560x1440@59.95Hz",
+        "2560x1440@144.00Hz",
+        "2560x1440@120.00Hz",
+        "2560x1440@99.95Hz",
+        "2560x1440@84.98Hz",
+        "2560x1440@23.97Hz",
+        "1024x768@60.00Hz",
+        "800x600@60.32Hz",
+        "640x480@59.94Hz"
+      ],
+      "colorManagementPreset": "srgb",
+      "sdrBrightness": 1,
+      "sdrSaturation": 1,
+      "sdrMinLuminance": 0.2,
+      "sdrMaxLuminance": 80,
+      "hardwareCursorsInUse": true
+    },
+    {
+      "id": 0,
+      "name": "HDMI-A-1",
+      "description": "LG Electronics LG TV SSCR2 SERIAL3",
+      "make": "LG Electronics",
+      "model": "LG TV SSCR2",
+      "serial": "SERIAL3",
+      "width": 3840,
+      "height": 2160,
+      "physicalWidth": 1600,
+      "physicalHeight": 900,
+      "refreshRate": 60.0,
+      "x": 2240,
+      "y": 750,
+      "activeWorkspace": {
+        "id": 1,
+        "name": "1"
+      },
+      "specialWorkspace": {
+        "id": 0,
+        "name": ""
+      },
+      "reserved": [
+        0,
+        26,
+        0,
+        0
+      ],
+      "scale": 2.4,
+      "transform": 0,
+      "focused": true,
+      "dpmsStatus": true,
+      "vrr": false,
+      "solitary": "0",
+      "solitaryBlockedBy": [
+        "WINDOWED",
+        "CANDIDATE"
+      ],
+      "activelyTearing": false,
+      "tearingBlockedBy": [
+        "NOT_TORN",
+        "USER",
+        "CANDIDATE",
+        "HW_CURSOR"
+      ],
+      "directScanoutTo": "0",
+      "directScanoutBlockedBy": [
+        "USER",
+        "CANDIDATE"
+      ],
+      "disabled": false,
+      "currentFormat": "XRGB8888",
+      "mirrorOf": "none",
+      "availableModes": [
+        "3840x2160@60.00Hz",
+        "4096x2160@59.94Hz",
+        "4096x2160@50.00Hz",
+        "4096x2160@29.97Hz",
+        "4096x2160@25.00Hz",
+        "4096x2160@24.00Hz",
+        "4096x2160@23.98Hz",
+        "3840x2160@59.94Hz",
+        "3840x2160@50.00Hz",
+        "3840x2160@29.97Hz",
+        "3840x2160@25.00Hz",
+        "3840x2160@23.98Hz",
+        "2560x1440@59.95Hz",
+        "1920x1080@119.88Hz",
+        "1920x1080@100.00Hz",
+        "1920x1080@60.00Hz",
+        "1920x1080@59.94Hz",
+        "1920x1080@50.00Hz",
+        "1920x1080@29.97Hz",
+        "1920x1080@25.00Hz",
+        "1920x1080@23.98Hz",
+        "1280x1024@60.02Hz",
+        "1152x864@60.00Hz",
+        "1280x720@59.94Hz",
+        "1280x720@50.00Hz",
+        "1024x768@60.00Hz",
+        "800x600@60.32Hz",
+        "720x576@50.00Hz",
+        "720x480@59.94Hz",
+        "640x480@59.95Hz",
+        "640x480@59.94Hz",
+        "640x480@59.93Hz"
+      ],
+      "colorManagementPreset": "srgb",
+      "sdrBrightness": 1,
+      "sdrSaturation": 1,
+      "sdrMinLuminance": 0.2,
+      "sdrMaxLuminance": 80,
+      "hardwareCursorsInUse": true
+    }
+  ],
+  "clients": [
+    {
+      "address": "0x55a4307c4810",
+      "mapped": true,
+      "hidden": false,
+      "visible": true,
+      "acceptsInput": true,
+      "at": [
+        6412,
+        38
+      ],
+      "size": [
+        1416,
+        2510
+      ],
+      "workspace": {
+        "id": 11,
+        "name": "11"
+      },
+      "floating": false,
+      "monitor": 1,
+      "class": "chrome-__home_user_.local_share_omarchy-hotkeys_hotkeys.html-Default",
+      "title": "Window 1",
+      "initialClass": "chrome-__home_user_.local_share_omarchy-hotkeys_hotkeys.html-Default",
+      "initialTitle": "Window 1",
+      "pid": 10368,
+      "xwayland": false,
+      "pinned": false,
+      "pinFullscreened": false,
+      "fullscreen": 0,
+      "fullscreenClient": 0,
+      "fullscreenHandler": "default",
+      "allowedOverFullscreen": true,
+      "grouped": [],
+      "tags": [
+        "omarchy-mode-opened*"
+      ],
+      "swallowing": "0x0",
+      "focusHistoryID": 2,
+      "inhibitingIdle": false,
+      "xdgTag": "",
+      "xdgDescription": "",
+      "contentType": "none",
+      "tearingHint": false,
+      "stableId": "1800001e"
+    },
+    {
+      "address": "0x55a430c6c450",
+      "mapped": true,
+      "hidden": false,
+      "visible": true,
+      "acceptsInput": true,
+      "at": [
+        2252,
+        788
+      ],
+      "size": [
+        781,
+        850
+      ],
+      "workspace": {
+        "id": 1,
+        "name": "1"
+      },
+      "floating": false,
+      "monitor": 0,
+      "class": "com.t3tools.T3Code",
+      "title": "Window 2",
+      "initialClass": "com.t3tools.T3Code",
+      "initialTitle": "Window 3",
+      "pid": 88383,
+      "xwayland": false,
+      "pinned": false,
+      "pinFullscreened": false,
+      "fullscreen": 0,
+      "fullscreenClient": 0,
+      "fullscreenHandler": "default",
+      "allowedOverFullscreen": true,
+      "grouped": [],
+      "tags": [],
+      "swallowing": "0x0",
+      "focusHistoryID": 1,
+      "inhibitingIdle": false,
+      "xdgTag": "",
+      "xdgDescription": "",
+      "contentType": "none",
+      "tearingHint": false,
+      "stableId": "1800002b"
+    },
+    {
+      "address": "0x55a4304d59d0",
+      "mapped": true,
+      "hidden": false,
+      "visible": true,
+      "acceptsInput": true,
+      "at": [
+        3047,
+        788
+      ],
+      "size": [
+        781,
+        850
+      ],
+      "workspace": {
+        "id": 1,
+        "name": "1"
+      },
+      "floating": false,
+      "monitor": 0,
+      "class": "chromium",
+      "title": "Window 4",
+      "initialClass": "chromium",
+      "initialTitle": "Window 5",
+      "pid": 10368,
+      "xwayland": false,
+      "pinned": false,
+      "pinFullscreened": false,
+      "fullscreen": 0,
+      "fullscreenClient": 0,
+      "fullscreenHandler": "default",
+      "allowedOverFullscreen": true,
+      "grouped": [],
+      "tags": [
+        "chromium-based-browser*",
+        "omarchy-mode-opened*"
+      ],
+      "swallowing": "0x0",
+      "focusHistoryID": 0,
+      "inhibitingIdle": true,
+      "xdgTag": "",
+      "xdgDescription": "",
+      "contentType": "none",
+      "tearingHint": false,
+      "stableId": "18000009"
+    }
+  ],
+  "workspaces": [
+    {
+      "id": 11,
+      "name": "11",
+      "monitor": "DP-2",
+      "monitorID": 1,
+      "windows": 1,
+      "hasfullscreen": false,
+      "lastwindow": "0x55a4307c4810",
+      "lastwindowtitle": "Window 1",
+      "ispersistent": false,
+      "tiledLayout": "dwindle"
+    },
+    {
+      "id": 1,
+      "name": "1",
+      "monitor": "HDMI-A-1",
+      "monitorID": 0,
+      "windows": 2,
+      "hasfullscreen": false,
+      "lastwindow": "0x55a4304d59d0",
+      "lastwindowtitle": "Window 4",
+      "ispersistent": false,
+      "tiledLayout": "dwindle"
+    },
+    {
+      "id": 21,
+      "name": "21",
+      "monitor": "DP-3",
+      "monitorID": 2,
+      "windows": 0,
+      "hasfullscreen": false,
+      "lastwindow": "0x0",
+      "lastwindowtitle": "",
+      "ispersistent": false,
+      "tiledLayout": "dwindle"
+    }
+  ]
+}

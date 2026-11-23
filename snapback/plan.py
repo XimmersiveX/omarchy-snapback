@@ -17,10 +17,16 @@ Where a window goes:
     * Special workspaces keep their name. A session saved without Omarchy's
       blocks keeps plain workspace numbers.
 
-Which open window is which saved one: the same app class, the same title
-first, then the rest in focus order. One process can own several windows
-(Chromium), so the process is never used. Windows the session doesn't know
-are left alone.
+Which open window is which saved one, always within the same app class:
+    1. In the Hyprland session the save was made in, the very same window
+       (Hyprland's stableId, which survives title changes and is never reused).
+    2. The same title.
+    3. Only with `loose` (right after login, when the open windows are ones
+       apps reopened by themselves): any other window of the app, in focus
+       order. Without it, a window the session doesn't name is never taken,
+       since it is one the user opened after saving; the saved one reopens.
+One process can own several windows (Chromium), so the process is never used.
+Windows the session doesn't know are left alone.
 """
 
 from __future__ import annotations
@@ -72,6 +78,7 @@ class WindowStep:
     geometry: Rect | None = None      # floating windows only; None = leave as is
     command: list[str] | None = None  # launch only
     window: str | None = None         # address of the open window it matched
+    matched_by: str | None = None     # window (same window), title, or app (loose)
     now: str | None = None            # workspace that window is on now
     reason: str | None = None         # skip or problem
     notes: list[str] = field(default_factory=list)
@@ -119,7 +126,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
           never: Callable[[str], bool] = lambda text: False,
           default_terminal: str | None = None,
           is_dir: Callable[[str], bool] = os.path.isdir,
-          name: str = "") -> Plan:
+          name: str = "", loose: bool = False) -> Plan:
     """The plan for restoring `session` onto the desktop in `source`.
 
     `entries` are the apps installed now, `never` is the never-restore check
@@ -135,7 +142,8 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
     clients = {c["address"]: c for c in source.snapshot["clients"]}
 
     open_windows = capture(source)
-    matches = _match(session["windows"], open_windows)
+    same_instance = bool(source.instance) and session.get("hyprland_instance") == source.instance
+    matches = _match(session["windows"], open_windows, same_instance, loose)
 
     workspace_steps: dict[int, WorkspaceStep] = {}
     missing: list[str] = []
@@ -162,7 +170,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
             workspace_steps[number] = WorkspaceStep(
                 number, step.monitor, step.owner or "", existing.get(number), step.waiting)
 
-        current = matches.get(index)
+        match = matches.get(index)
         placement = saved.get("placement")
         if step.floating and placement and not step.waiting:
             # Back on its own monitor or, for a special workspace or a session
@@ -174,7 +182,8 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
         if step.floating and step.waiting:
             step.notes.append("keeps its spot until its monitor is back")
 
-        if current:
+        if match:
+            current, step.matched_by = match
             step.window, step.now = current.address, current.workspace
             in_place = (current.workspace == step.workspace
                         and current.floating == step.floating
@@ -256,21 +265,29 @@ def _target(saved: dict, state, by_identity: dict[str, Monitor], host: Monitor |
     return str(number), existing.get(number) or (host.name if host else None), owner, slot, True
 
 
-def _match(saved: list[dict], open_windows: list[CapturedWindow]) -> dict[int, CapturedWindow | None]:
-    """Saved window index -> the open window that is it, if any."""
+def _match(saved: list[dict], open_windows: list[CapturedWindow], same_instance: bool,
+           loose: bool) -> dict[int, tuple[CapturedWindow, str]]:
+    """Saved window index -> (the open window that is it, what matched)."""
     pool: dict[str, list[CapturedWindow]] = {}
     for window in sorted(open_windows, key=lambda w: (w.focus < 0, w.focus)):
         pool.setdefault(window.app, []).append(window)
 
-    result: dict[int, CapturedWindow | None] = {}
-    for exact in (True, False):
+    tests = []
+    if same_instance:
+        tests.append(("window", lambda w, s: bool(w.stable_id) and w.stable_id == s.get("stable_id")))
+    tests.append(("title", lambda w, s: w.title == s.get("title")))
+    if loose:
+        tests.append(("app", lambda w, s: True))
+
+    result: dict[int, tuple[CapturedWindow, str]] = {}
+    for how, test in tests:
         for index, s in enumerate(saved):
             if index in result or s.get("skip"):
                 continue
             candidates = pool.get(s["app"], [])
             for window in candidates:
-                if not exact or window.title == s.get("title"):
-                    result[index] = window
+                if test(window, s):
+                    result[index] = (window, how)
                     candidates.remove(window)
                     break
     return result

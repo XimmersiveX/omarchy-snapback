@@ -31,19 +31,26 @@ ENTRIES = {e.id: e for e in (
     app("t3code.desktop", "com.t3tools.T3Code"),
     app("foot.desktop", terminal=True),
 )}
+# All recordings come from one Hyprland session, so window ids carry over
+# between them; their scrubbed titles don't.
+RIG = "recording-instance"
+
 # t1 stands in for a terminal opened in a folder; f1-f3 and s1 stay unresolved.
 MAPPING = {"snapback-test-t1": "foot.desktop"}
 
 
 def saved_scene():
     source = Source.from_dir(FIXTURES / "tv-on-scene")
+    source.instance = RIG
     procs = lambda pid: ProcInfo(shell_cwd="/home/me/work")  # noqa: E731
     return build(source, Resolver(ENTRIES, MAPPING), procs, {},
                  datetime(2026, 11, 22, tzinfo=timezone.utc))
 
 
-def desk(name):
-    return Source.from_dir(FIXTURES / name)
+def desk(name, instance=RIG):
+    source = Source.from_dir(FIXTURES / name)
+    source.instance = instance
+    return source
 
 
 def empty(source):
@@ -163,7 +170,7 @@ class Matching(unittest.TestCase):
         b["slot"] = 2
         session["windows"].append(b)
 
-        source = desk("tv-on-scene")
+        source = desk("tv-on-scene", instance="after-reboot")  # titles only
         client = next(c for c in source.snapshot["clients"] if c["initialClass"] == "chromium")
         client["title"] = "Mail"
         twin = dict(client, address="0xfeed", title="Docs", focusHistoryID=99)
@@ -195,6 +202,59 @@ class Matching(unittest.TestCase):
                          never=lambda text: "chromium" in text)
         self.assertEqual(w["chromium"].action, "skip")
         self.assertEqual(result.untouched, 1)
+
+
+class WhichWindowIsWhich(unittest.TestCase):
+    """The open window that fills a saved slot, in each mode."""
+
+    def test_same_session_follows_the_window_through_title_changes(self):
+        # T3 Code's title differs between the two recordings.
+        _, w = make(saved_scene(), desk("tv-unplugged"))
+        self.assertEqual(w["com.t3tools.T3Code"].matched_by, "window")
+
+    def test_new_session_matches_titles_only(self):
+        _, w = make(saved_scene(), desk("tv-unplugged", instance="after-reboot"))
+        self.assertEqual(w["com.t3tools.T3Code"].action, "launch")
+        self.assertEqual(w["chromium"].matched_by, "title")  # same scrubbed title in both
+
+    def test_unknown_session_never_counts_as_the_same_one(self):
+        session = saved_scene()
+        session["hyprland_instance"] = None
+        _, w = make(session, desk("tv-unplugged", instance=None))
+        self.assertEqual(w["com.t3tools.T3Code"].action, "launch")
+
+    def test_at_login_any_window_of_the_app_will_do(self):
+        _, w = make(saved_scene(), desk("tv-unplugged", instance="after-reboot"), loose=True)
+        t3 = w["com.t3tools.T3Code"]
+        self.assertEqual((t3.action, t3.matched_by), ("move", "app"))
+
+    def test_a_window_opened_after_the_save_is_never_taken(self):
+        # The live incident: the saved Chromium window was closed, another one
+        # (not in the session) was open, and a by-hand restore moved it.
+        session = saved_scene()
+        session["windows"] = [w for w in session["windows"] if w["app"] == "chromium"]
+        source = desk("tv-on-scene")
+        client = next(c for c in source.snapshot["clients"] if c["initialClass"] == "chromium")
+        client["stableId"], client["title"] = "1800ffff", "Something else"
+        result, w = make(session, source)
+        self.assertEqual(w["chromium"].action, "launch")
+        self.assertIsNone(w["chromium"].window)
+        self.assertEqual(result.untouched, len(source.snapshot["clients"]))
+
+    def test_the_same_window_beats_a_title_match(self):
+        session = saved_scene()
+        a = next(w for w in session["windows"] if w["app"] == "chromium")
+        b = dict(a, stable_id="1800ffff", title="Mail", slot=2)
+        a["title"] = "Mail-old"
+        session["windows"].append(b)
+        source = desk("tv-on-scene")
+        client = next(c for c in source.snapshot["clients"] if c["initialClass"] == "chromium")
+        client["title"] = "Mail"  # the saved b's title, but it is a's window
+        result = plan.build(session, source, ENTRIES)
+        by_title = {x.title: x for x in result.windows if x.app == "chromium"}
+        self.assertEqual((by_title["Mail-old"].window, by_title["Mail-old"].matched_by),
+                         (client["address"], "window"))
+        self.assertEqual(by_title["Mail"].action, "launch")
 
 
 class Changes(unittest.TestCase):

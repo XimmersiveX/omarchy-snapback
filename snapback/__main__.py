@@ -2,7 +2,7 @@
 
     python -m snapback inspect [--json] [--from DIR]
     python -m snapback save [NAME] [--dry-run] [--json] [--force]
-    python -m snapback restore [NAME] [--dry-run] [--json] [--file PATH] [--from DIR] [--timeout S]
+    python -m snapback restore [NAME] [--dry-run] [--json] [--at-login] [--file PATH] [--from DIR] [--timeout S]
     python -m snapback doctor
 """
 
@@ -109,7 +109,8 @@ def cmd_restore(args: argparse.Namespace) -> int:
     resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
     source = Source.from_dir(Path(args.source)) if args.source else Source.live()
     terminal = apps.default_terminal()
-    result = plan.build(saved, source, resolver.entries, resolver.is_never, terminal, name=path.stem)
+    result = plan.build(saved, source, resolver.entries, resolver.is_never, terminal,
+                        name=path.stem, loose=args.at_login)
     if args.dry_run:
         if args.json:
             print(json.dumps(result.to_dict(), indent=2))
@@ -121,7 +122,8 @@ def cmd_restore(args: argparse.Namespace) -> int:
         log = (lambda line: None) if args.json else (lambda line: print(f"  {line}"))
         report = restore.run(result, restore.LiveDesk(), timeout=args.timeout, log=log)
     # Check: planned again now, everything should already be in place.
-    after = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal)
+    after = plan.build(saved, Source.live(), resolver.entries, resolver.is_never, terminal,
+                       loose=args.at_login)
     off = [w for w in after.windows if w.action not in ("in-place", "skip", "problem")]
     if args.json:
         print(json.dumps({**report.to_dict(), "check": [w.to_dict() for w in off]}, indent=2))
@@ -186,7 +188,8 @@ def show_plan(result: plan.Plan, source: Source) -> None:
             print(f"  open  {w.app}  -> {where}")
             print(f"            $ {' '.join(w.command)}")
         elif w.action == "move":
-            print(f"  move  {w.app}  ws {w.now} -> {where}")
+            by = {"title": " (same title)", "app": " (another window of this app)"}.get(w.matched_by, "")
+            print(f"  move  {w.app}  ws {w.now} -> {where}{by}")
         elif w.action == "in-place":
             print(f"  ok    {w.app}  already on {where}")
         elif w.action == "skip":
@@ -256,6 +259,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", action="store_true", help="print the plan as JSON")
     p.add_argument("--file", metavar="PATH", help="read the session from this file instead")
     p.add_argument("--from", dest="source", metavar="DIR", help="plan against a recorded fixture")
+    p.add_argument("--at-login", action="store_true",
+                   help="any open window of an app may take a saved one's place (right after "
+                        "login, when open windows are ones apps reopened themselves)")
     p.add_argument("--timeout", type=float, default=30.0, metavar="S",
                    help="seconds to wait for reopened apps' windows (default 30)")
     p.set_defaults(func=cmd_restore)

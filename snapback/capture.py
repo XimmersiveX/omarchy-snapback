@@ -6,6 +6,7 @@ Read-only: nothing here changes the desktop.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,10 +21,13 @@ class Source:
 
     snapshot: dict
     workspaces: WorkspaceState
+    instance: str | None = None   # Hyprland's instance signature; window ids only mean
+                                  # something within one instance
 
     @classmethod
     def live(cls) -> "Source":
-        return cls(hypr.snapshot(), WorkspaceState.load())
+        return cls(hypr.snapshot(), WorkspaceState.load(),
+                   os.environ.get("HYPRLAND_INSTANCE_SIGNATURE") or None)
 
     @classmethod
     def from_dir(cls, directory: Path) -> "Source":
@@ -50,6 +54,7 @@ class CapturedWindow:
     grouped: bool
     placement: Placement | None
     focus: int = -1             # Hyprland's focus history: 0 = most recently focused
+    stable_id: str | None = None  # Hyprland's id for the window, never reused within an instance
 
     def to_dict(self) -> dict:
         data = self.__dict__.copy()
@@ -88,6 +93,7 @@ def capture(source: Source) -> list[CapturedWindow]:
             grouped=bool(client.get("grouped")),
             placement=relative(rect, monitor) if monitor else None,
             focus=int(client.get("focusHistoryID", -1)),
+            stable_id=client.get("stableId"),
         ))
     return windows
 

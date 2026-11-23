@@ -9,6 +9,12 @@ Order matters:
        around. It is turned back on in a `finally`, and a timer inside
        Hyprland turns it back on anyway if Snapback dies before that.
     2. Move workspaces that sit on the wrong monitor onto their owner.
+       Away from the setup's own screens, the windows to be moved are parked
+       on a hidden workspace first. Omarchy remembers which monitor each
+       workspace it folded came from and sends that workspace back when the
+       monitor returns; a workspace Snapback refilled would otherwise take
+       the wrong windows there. Emptied, those workspaces go away, and Omarchy
+       forgets them when their numbers are made again.
     3. Move open windows into place.
     4. Launch the rest, catch each new window by its app class, and place it.
        A launched window first appears wherever Hyprland opens it and is then
@@ -242,6 +248,9 @@ def _restore(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float
             except hypr.HyprError as exc:
                 report.errors.append(f"couldn't move ws {ws.workspace} to {ws.monitor}: {exc}")
 
+    if plan.elsewhere:
+        _park([s.window for s in plan.windows if s.action == "move" and s.window], desk, report)
+
     launches = []
     for step in plan.windows:
         if step.action == "move":
@@ -294,6 +303,14 @@ def _restore(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float
 
 
 STAGING = "special:snapback-staging"
+
+
+def _park(addresses: list[str], desk: Desk, report: Report) -> None:
+    for address in addresses:
+        try:
+            desk.dispatch("window.move", window=f"address:{address}", workspace=STAGING, follow=False)
+        except hypr.HyprError as exc:
+            report.errors.append(f"couldn't park a window before moving it: {exc}")
 
 
 def _arrange_tiles(desk: Desk, report: Report, settle: float, log) -> None:

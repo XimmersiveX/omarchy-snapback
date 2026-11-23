@@ -112,6 +112,7 @@ class Plan:
                                                       # switching to the session closes
     views: dict[str, str] = field(default_factory=dict)  # connector -> workspace it showed
     screens: list[dict] = field(default_factory=list)  # how each saved screen lands today
+    elsewhere: bool = False           # the setup's main screen isn't here: screens matched by role
 
     def count(self, action: str) -> int:
         return sum(1 for w in self.windows if w.action == action)
@@ -127,6 +128,7 @@ class Plan:
             "others": self.others,
             "views": self.views,
             "screens": self.screens,
+            "elsewhere": self.elsewhere,
             "summary": {a: self.count(a) for a in ("launch", "move", "in-place", "skip", "problem")},
         }
 
@@ -257,7 +259,8 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
               if w.address not in taken and not w.workspace.startswith("special:")]
     return Plan(name, session.get("saved_at"), sorted(workspace_steps.values(), key=lambda w: w.workspace),
                 steps, missing, len(open_windows) - len(taken), others,
-                _views(session, state, by_identity, mapping), _screens(session, mapping, by_identity))
+                _views(session, state, by_identity, mapping), _screens(session, mapping, by_identity),
+                mapping.elsewhere)
 
 
 def app_name(app: str, entries: dict[str, DesktopEntry]) -> str:

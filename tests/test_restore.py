@@ -612,6 +612,48 @@ class Views(unittest.TestCase):
                          {"DP-2": "12", "DP-3": "22", "HDMI-A-1": "1"})
 
 
+
+class Elsewhere(unittest.TestCase):
+    """A setup opened away from its own screens (here: the same desk, but the
+    setup's screens renamed, so none of them is known)."""
+
+    def setUp(self):
+        import json
+        text = json.dumps(saved_scene())
+        for i, identity in enumerate(["LG Electronics LG TV SSCR2 SERIAL3",
+                                      "Ancor Communications Inc ROG PG279Q #SERIAL1",
+                                      "Ancor Communications Inc ROG PG279Q #SERIAL2"]):
+            text = text.replace(identity, f"Somewhere else {i}")
+        self.source = desk("tv-on-scene")
+        for client in self.source.snapshot["clients"]:  # two windows wandered off to ws 22
+            if client["initialClass"] in ("chromium", "com.t3tools.T3Code"):
+                client["workspace"] = {"id": 22, "name": "22"}
+                client["monitor"] = next(m["id"] for m in self.source.snapshot["monitors"] if m["name"] == "DP-3")
+        self.plan = plan.build(json.loads(text), self.source, ENTRIES, default_terminal="foot.desktop",
+                               is_dir=lambda path: True)
+        self.fake = FakeDesk(self.source)
+
+    def test_windows_to_move_are_parked_first_and_none_stay_parked(self):
+        self.assertTrue(self.plan.elsewhere)
+        moving = {s.window for s in self.plan.windows if s.action == "move"}
+        self.assertTrue(moving)
+        restore.run(self.plan, self.fake)
+        moves = [(c[1]["window"].split(":")[1], c[1]["workspace"]) for c in self.fake.calls
+                 if c[0] == "window.move" and "workspace" in c[1]]
+        parked = [a for a, ws in moves if ws == restore.STAGING]
+        self.assertEqual(set(parked[:len(moving)]), moving)       # all parked before any placing
+        first_placing = next(i for i, (a, ws) in enumerate(moves) if ws != restore.STAGING)
+        self.assertGreaterEqual(first_placing, len(moving))
+        self.assertFalse(any(c["workspace"]["name"] == restore.STAGING for c in self.fake.clients()))
+
+    def test_nothing_is_parked_at_home(self):
+        home = make_plan(self.source)
+        self.assertFalse(home.elsewhere)
+        self.assertTrue(any(s.action == "move" for s in home.windows))
+        restore.run(home, self.fake)
+        first = next(c for c in self.fake.calls if c[0] == "window.move" and "workspace" in c[1])
+        self.assertNotEqual(first[1]["workspace"], restore.STAGING)
+
 class LockTest(unittest.TestCase):
     def test_second_restore_is_refused(self):
         import tempfile

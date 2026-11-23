@@ -21,6 +21,7 @@ Snapback's own fixtures always use the old names.
 from __future__ import annotations
 
 import os
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -115,3 +116,13 @@ def _read(path: Path) -> str | None:
         return path.read_text()
     except FileNotFoundError:
         return None
+
+
+def installed_version() -> str | None:
+    """Omarchy's version, e.g. "4.5.0-3", or None when it can't be read."""
+    try:
+        result = subprocess.run(["omarchy", "version"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = result.stdout.strip().splitlines()
+    return lines[0].strip() if result.returncode == 0 and lines else None

@@ -49,6 +49,7 @@ class CapturedWindow:
     pinned: bool
     grouped: bool
     placement: Placement | None
+    focus: int = -1             # Hyprland's focus history: 0 = most recently focused
 
     def to_dict(self) -> dict:
         data = self.__dict__.copy()
@@ -86,6 +87,7 @@ def capture(source: Source) -> list[CapturedWindow]:
             pinned=bool(client.get("pinned")),
             grouped=bool(client.get("grouped")),
             placement=relative(rect, monitor) if monitor else None,
+            focus=int(client.get("focusHistoryID", -1)),
         ))
     return windows
 

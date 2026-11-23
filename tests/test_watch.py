@@ -171,7 +171,7 @@ class Hook(unittest.TestCase):
         text = self.path.read_text()
         self.assertIn("systemd-run --user --unit=snapback", text)
         self.assertIn("'--setenv=PYTHONPATH=/home/me/my code'", text)
-        self.assertTrue(text.rstrip().endswith("python3 -m snapback login"))
+        self.assertTrue(text.rstrip().endswith("python3 -m snapback login --verbose"))
         setup.install(self.path)  # again is fine
         self.assertTrue(setup.remove(self.path))
         self.assertFalse(self.path.exists())

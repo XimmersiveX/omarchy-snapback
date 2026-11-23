@@ -394,7 +394,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="seconds to wait before restoring (default 3)")
     p.add_argument("--timeout", type=float, default=45.0, metavar="S",
                    help="seconds to wait for reopened apps' windows (default 45)")
-    p.add_argument("--verbose", action="store_true", default=True, help=argparse.SUPPRESS)
+    p.add_argument("--verbose", action="store_true", help="say what it does")
     p.set_defaults(func=cmd_login)
 
     p = sub.add_parser("setup", help="restore at login and keep the session saved")

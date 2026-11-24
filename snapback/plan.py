@@ -35,6 +35,9 @@ browser is only taken for it when the open window's tabs are known and hold
 every saved tab's site. Otherwise a window is opened with the saved tabs (see
 browsers.py). Where the tabs aren't known on either side, as before.
 
+Apps never restored (never_restore, Zoom by default) are never closed by a
+switch either: the setup can't bring them back, and it would end a call.
+
 Pinned windows are left alone: never matched, moved or closed. While an app
 has a pinned window, its other windows aren't closed either (`pinned` lists
 them): a video call's picture-in-picture is pinned, the browser window
@@ -320,10 +323,13 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
 
     taken = {s.window for s in steps if s.window}
     pinned_apps = {w.app for w in open_windows if w.pinned}
+    skipped_apps = {s["app"] for s in session["windows"] if s.get("skip")}
     others, pinned = [], []
     for w in sorted(open_windows, key=lambda w: (w.focus < 0, w.focus)):
         if w.address in taken or w.workspace.startswith("special:"):
             continue
+        if never(w.app) or w.app in skipped_apps:
+            continue  # never reopened, so never closed either: a switch doesn't end a call
         (pinned if w.app in pinned_apps else others).append(
             {"address": w.address, "app": w.app, "name": app_name(w.app, entries), "title": w.title,
              "workspace": w.workspace})

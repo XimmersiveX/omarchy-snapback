@@ -411,6 +411,19 @@ class SwitchingAndViews(unittest.TestCase):
         t3 = next(o for o in result.others if o["app"] == "com.t3tools.T3Code")
         self.assertEqual(t3["name"], "t3code.desktop")  # the entry's name (ENTRIES names = ids)
 
+    def test_apps_never_restored_stay_open(self):
+        # A Zoom call: the setup can't bring it back, so a switch doesn't end it.
+        session = dict(saved_scene(), windows=[])
+        result, _ = make(session, desk("tv-on-scene"), never=lambda text: text == "com.t3tools.T3Code")
+        self.assertNotIn("com.t3tools.T3Code", {o["app"] for o in result.others})
+        self.assertIn("chromium", {o["app"] for o in result.others})
+        # Nor an app the setup itself saved as skipped.
+        session = saved_scene()
+        session["windows"] = [dict(w, skip="never restore: zoom") if w["app"] == "chromium" else w
+                              for w in session["windows"]]
+        result, _ = make(session, desk("tv-on-scene"))
+        self.assertNotIn("chromium", {o["app"] for o in result.others})
+
     def test_a_pinned_window_and_its_apps_other_windows_stay_open(self):
         # A call's picture-in-picture is pinned; the browser window holding the
         # call isn't, and nothing links them.

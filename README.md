@@ -37,6 +37,8 @@ front of you first.
 - **Undo:** the desk as it was is kept as **Before switch**. Click it to switch back.
 - **Pinned windows stay.** A switch never closes a pinned window, nor, while one is pinned, the
   other windows of that app. So a video call keeps going behind its picture-in-picture.
+- **Apps never reopened stay too:** a switch doesn't close an app on the `never_restore` list
+  (Zoom by default, see below), so it never ends a call.
 - **Add without closing:** the layers button on a setup puts its windows back and closes nothing.
 - **Save open windows as…** under the list adds a setup; the delete button on a setup removes it.
 

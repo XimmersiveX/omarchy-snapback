@@ -32,6 +32,7 @@ class OmarchyTerminalApps(unittest.TestCase):
         from snapback.apps import exec_args
         self.assertEqual(exec_args('mpv --title="a b" -- %U'), ["mpv", "--title=a b", "--"])
         self.assertEqual(exec_args("app 100%%"), ["app", "100%"])
+        self.assertEqual(exec_args('foo "bar'), [])  # an unclosed quote: nothing to run
 
 
 class Apps(unittest.TestCase):

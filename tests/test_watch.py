@@ -1,11 +1,14 @@
 """The autosave watcher, the login hook, and the login summary."""
 
+import json
 import shlex
 import socket
 import subprocess
 import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
+from unittest import mock
 
 from snapback import restore, session, setup, watch
 from snapback.__main__ import restore_summary
@@ -94,6 +97,16 @@ class Saving(unittest.TestCase):
         def save():
             script.saves.append(script.now)
             raise session.SessionError("nothing to reopen")
+
+        script.run(save=save)
+        self.assertEqual(script.saves, [0, 60])
+
+    def test_a_failed_save_does_not_stop_the_watcher(self):
+        script = Script([], end=70)
+
+        def save():
+            script.saves.append(script.now)
+            raise OSError("No space left on device")
 
         script.run(save=save)
         self.assertEqual(script.saves, [0, 60])
@@ -237,6 +250,26 @@ class LoginSummary(unittest.TestCase):
         self.assertEqual(body, "2 still out of place; restore again to finish.")
         _, body = restore_summary(self.report("placed", "failed"), misplaced=2)
         self.assertIn("couldn't be restored", body)  # failures say more than misplacement
+
+
+class Login(unittest.TestCase):
+    def test_autosave_starts_whatever_the_restore_did(self):
+        import snapback.__main__ as cli
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        (Path(tmp.name) / "snapback/sessions").mkdir(parents=True)
+        (Path(tmp.name) / "snapback/sessions/last.json").write_text('{"snapback": 1, "windows": []}')
+        watched = []
+        with mock.patch.dict("os.environ", {"XDG_STATE_HOME": tmp.name}), \
+                mock.patch.object(cli.Source, "live", side_effect=ValueError("a bug")), \
+                mock.patch.object(cli, "notify"), \
+                mock.patch.object(cli, "cmd_watch", lambda args: watched.append(args) or 0), \
+                mock.patch("sys.stderr"):
+            self.assertEqual(cli.cmd_login(Namespace(settle=0, timeout=1)), 0)
+        self.assertEqual(len(watched), 1)
+        self.assertTrue((Path(tmp.name) / "snapback/sessions/previous.json").exists())
+        record = json.loads((Path(tmp.name) / "snapback/last-restore.json").read_text())
+        self.assertEqual(record["errors"], ["a bug"])
 
 
 if __name__ == "__main__":

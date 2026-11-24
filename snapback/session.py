@@ -177,7 +177,33 @@ def read(path: Path) -> dict:
         raise SessionError(f"no saved session at {path}") from exc
     except (OSError, json.JSONDecodeError) as exc:
         raise SessionError(f"can't read {path}: {exc}") from exc
+    if not isinstance(session, dict):
+        raise SessionError(f"{path} isn't a Snapback session")
     if session.get("snapback") != SCHEMA:
         raise SessionError(f"{path} is from a different Snapback version "
                            f"(format {session.get('snapback')!r}, expected {SCHEMA})")
+    problem = _shape_problem(session)
+    if problem:
+        raise SessionError(f"{path} is damaged: {problem}")
     return session
+
+
+def _shape_problem(session: dict) -> str | None:
+    """What the code that reads a session relies on, checked once here."""
+    windows, monitors = session.get("windows", []), session.get("monitors", [])
+    if not isinstance(windows, list) or not isinstance(monitors, list):
+        return "windows and monitors must be lists"
+    if not all(isinstance(m, dict) for m in monitors):
+        return "a monitor isn't an object"
+    for w in windows:
+        if not isinstance(w, dict) or not isinstance(w.get("app"), str):
+            return "a window has no app"
+        if not isinstance(w.get("slot"), (int, type(None))) or isinstance(w.get("slot"), bool):
+            return f"{w['app']}: slot must be a number"
+        for key in ("launch", "tabs"):
+            if not isinstance(w.get(key), (dict, type(None))):
+                return f"{w['app']}: {key} must be an object"
+        launch = w.get("launch")
+        if launch and not (isinstance(launch.get("entry"), str) and isinstance(launch.get("how"), str)):
+            return f"{w['app']}: launch needs an entry and how"
+    return None

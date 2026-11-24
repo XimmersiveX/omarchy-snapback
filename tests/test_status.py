@@ -17,7 +17,7 @@ ENTRIES = {"t3code.desktop": DesktopEntry("t3code.desktop", "T3 Code", "x", None
 
 
 def window(app, entry=None, skip=None, problem=None):
-    return {"app": app, "launch": {"entry": entry} if entry else None,
+    return {"app": app, "launch": {"entry": entry, "how": "desktop"} if entry else None,
             "skip": skip, "problem": problem}
 
 

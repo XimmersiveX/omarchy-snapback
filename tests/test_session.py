@@ -123,6 +123,22 @@ class Files(unittest.TestCase):
         with self.assertRaises(SessionError):
             read(self.dir / "missing.json")
 
+    def test_damaged_file_is_refused(self):
+        self.dir.mkdir()
+        window = {"app": "foot", "slot": 1, "launch": {"entry": "foot.desktop", "how": "terminal"}}
+        for bad in (None, [], "x", {"snapback": SCHEMA, "windows": "x"},
+                    {"snapback": SCHEMA, "monitors": [1]},
+                    {"snapback": SCHEMA, "windows": [{"title": "no app"}]},
+                    {"snapback": SCHEMA, "windows": [{**window, "slot": "1"}]},
+                    {"snapback": SCHEMA, "windows": [{**window, "launch": "foot"}]},
+                    {"snapback": SCHEMA, "windows": [{**window, "launch": {"entry": "foot.desktop"}}]},
+                    {"snapback": SCHEMA, "windows": [{**window, "tabs": ["https://a"]}]}):
+            self.path.write_text(json.dumps(bad))
+            with self.assertRaises(SessionError, msg=bad):
+                read(self.path)
+        self.path.write_text(json.dumps({"snapback": SCHEMA, "windows": [window]}))
+        self.assertEqual(read(self.path)["windows"], [window])
+
 
 class Config(unittest.TestCase):
     def load(self, text):

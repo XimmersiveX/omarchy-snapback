@@ -67,13 +67,13 @@ class WorkspaceState:
         state = cls(found=blocks_text is not None)
         for line in (blocks_text or "").splitlines():
             parts = line.split("\t")
-            if len(parts) == 3 and parts[0].isdigit() and parts[2]:
+            if len(parts) == 3 and parts[0].isdecimal() and parts[2]:
                 state.blocks[parts[2]] = int(parts[0])
                 if parts[1]:
                     state.connectors[parts[1]] = parts[2]
         for line in (merged_text or "").splitlines():
             parts = line.split("\t")
-            if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit() and parts[2]:
+            if len(parts) == 3 and parts[0].isdecimal() and parts[1].isdecimal() and parts[2]:
                 state.merged[int(parts[0])] = (int(parts[1]), parts[2])
         return state
 

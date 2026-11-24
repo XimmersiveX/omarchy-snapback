@@ -334,7 +334,7 @@ class Fullscreen(unittest.TestCase):
         self.assertIn("not made full screen while its monitor is away", t3.notes)
 
     def test_odd_values_mean_not_full_screen(self):
-        for value in (None, 0, 3, -1):
+        for value in (None, 0, 3, -1, "x", "2", True, 1.5):
             self.assertEqual(plan.fullscreen_mode({"fullscreen": value}), 0)
         self.assertEqual(plan.fullscreen_mode({}), 0)
 

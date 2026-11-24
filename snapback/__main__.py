@@ -20,12 +20,15 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 
 from . import __version__, apps, browsers, config, hypr, omarchy, plan, restore, screens, session, setup, status, watch
 from .capture import Source, capture
 
 TESTED_HYPRLAND = ("v0.56",)
+# Errors Snapback explains itself; anything else is a bug and gets a traceback.
+EXPECTED = (hypr.HyprError, session.SessionError, config.ConfigError, restore.RestoreError)
 
 
 def cmd_inspect(args: argparse.Namespace) -> int:
@@ -340,8 +343,11 @@ def cmd_login(args: argparse.Namespace) -> int:
         # The session as it was when the desk went down, kept apart from the
         # autosave, so a restore that goes wrong can't lose it.
         backup = session.session_path("previous")
-        shutil.copy2(path, backup)
-        backup.chmod(0o600)
+        try:
+            shutil.copy2(path, backup)
+            backup.chmod(0o600)
+        except OSError as exc:
+            print(f"snapback: couldn't keep the session as 'previous': {exc}", file=sys.stderr, flush=True)
         try:
             saved = session.read(path)
             cfg = config.load()
@@ -357,7 +363,9 @@ def cmd_login(args: argparse.Namespace) -> int:
             print(json.dumps(report.to_dict()), flush=True)
             status.record_restore(status.restore_record("last", "login", report.to_dict()))
             notify(*restore_summary(report))
-        except (session.SessionError, restore.RestoreError, hypr.HyprError, config.ConfigError) as exc:
+        except Exception as exc:  # noqa: BLE001 - whatever went wrong, autosave still starts
+            if not isinstance(exc, EXPECTED):
+                traceback.print_exc()
             print(f"snapback: restore failed: {exc}", file=sys.stderr, flush=True)
             status.record_restore(status.restore_record("last", "login", error=str(exc)))
             notify("Snapback couldn't restore your windows",
@@ -593,7 +601,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (hypr.HyprError, session.SessionError, config.ConfigError, restore.RestoreError) as exc:
+    except EXPECTED as exc:
         print(f"snapback: {exc}", file=sys.stderr)
         return 1
 

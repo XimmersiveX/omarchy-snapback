@@ -21,7 +21,7 @@ def query(what: str) -> object:
     try:
         result = subprocess.run(
             ["hyprctl", "-j", what],
-            capture_output=True, text=True, timeout=5, check=True,
+            capture_output=True, text=True, errors="replace", timeout=5, check=True,
         )
     except FileNotFoundError as exc:
         raise HyprError("hyprctl not found; is Hyprland installed?") from exc
@@ -68,7 +68,7 @@ def evaluate(code: str) -> None:
     """Run Lua inside Hyprland. Hyprland answers "ok", or the error."""
     try:
         result = subprocess.run(["hyprctl", "eval", code],
-                                capture_output=True, text=True, timeout=5)
+                                capture_output=True, text=True, errors="replace", timeout=5)
     except FileNotFoundError as exc:
         raise HyprError("hyprctl not found; is Hyprland installed?") from exc
     except subprocess.TimeoutExpired as exc:
@@ -95,7 +95,7 @@ def option(name: str) -> object:
 def _getoption(name: str) -> dict:
     try:
         result = subprocess.run(["hyprctl", "-j", "getoption", name],
-                                capture_output=True, text=True, timeout=5, check=True)
+                                capture_output=True, text=True, errors="replace", timeout=5, check=True)
         return json.loads(result.stdout)
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
         raise HyprError(f"can't read Hyprland option {name}: {exc}") from exc

@@ -201,10 +201,15 @@ TUI_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def exec_args(exec_line: str) -> list[str]:
-    """A desktop entry's Exec line as arguments, without field codes (%U, %f...)."""
+    """A desktop entry's Exec line as arguments, without field codes (%U, %f...).
+    None of them when the line can't be read (an unclosed quote)."""
     import shlex
+    try:
+        words = shlex.split(exec_line)
+    except ValueError:
+        return []
     args = []
-    for arg in shlex.split(exec_line):
+    for arg in words:
         if re.fullmatch(r"%[fFuUdDnNickvm]", arg):
             continue
         args.append(arg.replace("%%", "%"))

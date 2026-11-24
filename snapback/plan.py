@@ -156,8 +156,8 @@ FULLSCREEN_NOTES = {1: "full width", 2: "full screen"}
 def fullscreen_mode(saved: dict) -> int:
     """How a saved window filled its screen: 0 not, 1 full width (Hyprland's
     maximized: the workspace's area, bar still shown), 2 full screen."""
-    mode = int(saved.get("fullscreen") or 0)
-    return mode if mode in FULLSCREEN_NOTES else 0
+    mode = saved.get("fullscreen")
+    return mode if mode in FULLSCREEN_NOTES and not isinstance(mode, bool) else 0
 
 
 def terminal_command(cwd: str | None) -> list[str]:
@@ -208,7 +208,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
     # ones holding windows of apps the setup doesn't have (they stay).
     setup_apps = {w["app"] for w in session["windows"]}
     busy = {current for current in state.merged if current in existing}
-    busy |= {int(w.workspace) for w in open_windows if w.workspace.isdigit() and w.app not in setup_apps}
+    busy |= {int(w.workspace) for w in open_windows if w.workspace.isdecimal() and w.app not in setup_apps}
     by_block = {block: identity for identity, block in state.blocks.items()}
     in_use = {(by_block[(n - 1) // SLOTS], (n - 1) % SLOTS + 1) for n in busy
               if (n - 1) // SLOTS in by_block} if follow else set()
@@ -239,7 +239,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
         if step.waiting and step.owner not in missing:
             missing.append(step.owner)
 
-        number = int(step.workspace) if step.workspace.lstrip("-").isdigit() else None
+        number = int(step.workspace) if step.workspace.lstrip("-").isdecimal() else None
         if number is not None and number > 0 and step.monitor and number not in workspace_steps:
             workspace_steps[number] = WorkspaceStep(
                 number, step.monitor, step.owner or "", existing.get(number), step.waiting)
@@ -369,7 +369,7 @@ def _views(session: dict, state, by_identity: dict[str, Monitor], mapping: Mappi
             number = state.workspace_for(monitor.identity, view["slot"])
             if number is not None:
                 views[monitor.name] = str(number)
-        elif str(view.get("workspace", "")).isdigit():  # saved without Omarchy's blocks
+        elif str(view.get("workspace", "")).isdecimal():  # saved without Omarchy's blocks
             views[monitor.name] = str(view["workspace"])
     return views
 
@@ -410,7 +410,7 @@ def _target(saved: dict, state, by_identity: dict[str, Monitor], host: Monitor |
     if not owner or not slot:
         if workspace.startswith("special:"):
             return workspace, None, None, None, False
-        if workspace.isdigit():  # saved without Omarchy's blocks
+        if workspace.isdecimal():  # saved without Omarchy's blocks
             return workspace, existing.get(int(workspace)), None, None, False
         return None
 

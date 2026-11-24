@@ -468,7 +468,7 @@ def _arrange_tiles(desk: Desk, report: Report, settle: float, log) -> None:
             monitor = results[0].step.monitor
             foreign = any(not c.get("floating") and c["workspace"]["name"] == workspace and a not in saved
                           for a, c in clients.items())
-            if (tree is not None and not foreign and monitor in by_name and workspace.isdigit()
+            if (tree is not None and not foreign and monitor in by_name and workspace.isdecimal()
                     and not any(r.step.waiting for r in results)):
                 try:
                     box = boxes[by_name[monitor]]
@@ -615,7 +615,7 @@ def _place(desk: Desk, step: WindowStep, address: str, log) -> Result:
             _unset_fullscreen(desk, window, now)
         if step.workspace and client["workspace"]["name"] != step.workspace:
             desk.dispatch("window.move", window=window, workspace=step.workspace, follow=False)
-        if step.monitor and step.workspace and step.workspace.isdigit():
+        if step.monitor and step.workspace and step.workspace.isdecimal():
             number = int(step.workspace)
             on = next((w["monitor"] for w in desk.workspaces() if w["id"] == number), None)
             if on and on != step.monitor:

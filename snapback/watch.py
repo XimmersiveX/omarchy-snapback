@@ -114,6 +114,8 @@ class Watcher:
                     self.log("saved")
             except session.SessionError as exc:
                 self.log(f"not saving: {exc}")
+            except Exception as exc:  # noqa: BLE001 - one failed save must not end autosave
+                self.log(f"save failed, trying again later: {type(exc).__name__}: {exc}")
             dirty, last_save = False, self.clock()
 
 

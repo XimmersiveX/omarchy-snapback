@@ -73,6 +73,7 @@ from pathlib import Path
 from typing import Protocol
 
 from . import files, hypr, layout
+from .capture import app_of
 from .geometry import Rect, contains, logical_size
 from .plan import Plan, WindowStep
 
@@ -353,7 +354,7 @@ def _launch_and_catch(launches: list[WindowStep], desk: Desk, report: Report, ti
         for exact in (True, False):
             for step in list(pending):
                 for client in fresh:
-                    if client["address"] in claimed or _class(client) != step.app:
+                    if client["address"] in claimed or app_of(client) != step.app:
                         continue
                     if exact and client.get("title") != step.title:
                         continue
@@ -368,8 +369,8 @@ def _launch_and_catch(launches: list[WindowStep], desk: Desk, report: Report, ti
     for step in pending:
         report.results.append(Result(step, "failed", detail=f"no {step.app} window appeared within {timeout:g}s"))
     for client in desk.clients():
-        if client["address"] not in before and client["address"] not in claimed and _class(client) in wanted:
-            report.extra.append(f"{_class(client)} ({client['address']})")
+        if client["address"] not in before and client["address"] not in claimed and app_of(client) in wanted:
+            report.extra.append(f"{app_of(client)} ({client['address']})")
 
 
 STAGING = "special:snapback-staging"
@@ -444,7 +445,7 @@ def _arrange_tiles(desk: Desk, report: Report, settle: float, log) -> None:
             best = _best([r.step.tile for r in results], [_center(b) for b in boxes_now])
             if layout.same_shape({i: r.step.tile_box for i, r in enumerate(results)},
                                  {i: boxes_now[best[i]] for i in range(len(results))}):
-                _swap_into_place(desk, report, workspace, results, [_center(b) for b in boxes_now], log)
+                _swap_into_place(desk, report, workspace, results, best, log)
                 continue
             tree = layout.split_tree(saved)
             monitor = results[0].step.monitor
@@ -462,8 +463,7 @@ def _arrange_tiles(desk: Desk, report: Report, settle: float, log) -> None:
                 except hypr.HyprError as exc:
                     report.errors.append(f"couldn't rebuild the layout of ws {workspace}: {exc}")
                 continue
-            _swap_into_place(desk, report, workspace, results,
-                             [_center(now[r.address]) for r in results], log)
+            _swap_into_place(desk, report, workspace, results, best, log)
 
     if report.rebuilt:
         _show_views(desk, views, report)
@@ -513,8 +513,9 @@ def _show_views(desk: Desk, views: dict[str, str], report: Report) -> None:
 
 
 def _swap_into_place(desk: Desk, report: Report, workspace: str, results: list[Result],
-                     now: list[tuple[float, float]], log) -> None:
-    swaps = _swaps([r.step.tile for r in results], now)
+                     best: list[int], log) -> None:
+    """Swap windows so window i ends up in tile best[i] (see _best)."""
+    swaps = _swaps_for(best)
     if not swaps:
         return
     try:
@@ -559,12 +560,6 @@ def _best(saved: list[tuple[float, float]], now: list[tuple[float, float]]) -> l
     if sum(cost(i, i) for i in range(n)) - sum(cost(i, best[i]) for i in range(n)) < 1e-6:
         return list(range(n))  # no better than now: leave them
     return best
-
-
-def _swaps(saved: list[tuple[float, float]], now: list[tuple[float, float]]) -> list[tuple[int, int]]:
-    """Swaps (window i, window j) that move each window to the tile nearest its
-    saved spot. `now[k]` is the tile window k is in."""
-    return _swaps_for(_best(saved, now))
 
 
 def _swaps_for(best: list[int]) -> list[tuple[int, int]]:
@@ -653,5 +648,3 @@ def _client(desk: Desk, address: str) -> dict | None:
     return next((c for c in desk.clients() if c["address"] == address), None)
 
 
-def _class(client: dict) -> str:
-    return client.get("initialClass") or client.get("class") or ""

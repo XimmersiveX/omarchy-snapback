@@ -83,12 +83,13 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
     browser_tabs = tabs(source.snapshot["clients"])
     for window in capture(source):
         result = resolver.resolve(window.app, procs(window.pid))
+        window_tabs = browser_tabs.get(window.address) or {}
         saved.append(SavedWindow(
             window,
             result.launch.to_dict() if result.launch else None,
             result.skip,
             result.problem,
-            browser_tabs.get(window.address) if (browser_tabs.get(window.address) or {}).get("urls") else None,
+            window_tabs if window_tabs.get("urls") else None,
         ))
     saved.sort(key=lambda s: (s.window.focus < 0, s.window.focus))
 

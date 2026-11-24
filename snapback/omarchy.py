@@ -92,11 +92,11 @@ class WorkspaceState:
             return None
         if workspace_id in self.merged:
             original, identity = self.merged[workspace_id]
-            return identity, _slot(original)
+            return identity, slot_of(original)
         block = (workspace_id - 1) // SLOTS
         for identity, owned in self.blocks.items():
             if owned == block:
-                return identity, _slot(workspace_id)
+                return identity, slot_of(workspace_id)
         return None
 
     def workspace_for(self, identity: str, slot: int) -> int | None:
@@ -107,7 +107,8 @@ class WorkspaceState:
         return block * SLOTS + slot
 
 
-def _slot(workspace_id: int) -> int:
+def slot_of(workspace_id: int) -> int:
+    """A regular workspace's slot (1-10) within its monitor's block."""
     return (workspace_id - 1) % SLOTS + 1
 
 

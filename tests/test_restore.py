@@ -412,7 +412,7 @@ class Swaps(unittest.TestCase):
         # Three tiles in a row; the windows sit in them rotated one step.
         tiles = [(0.2, 0.5), (0.5, 0.5), (0.8, 0.5)]
         saved = [tiles[1], tiles[2], tiles[0]]      # window i belongs in tile (i+1)%3
-        swaps = restore._swaps(saved, tiles)
+        swaps = restore._swaps_for(restore._best(saved, tiles))
         where = [0, 1, 2]
         for i, j in swaps:
             where[i], where[j] = where[j], where[i]
@@ -421,12 +421,12 @@ class Swaps(unittest.TestCase):
 
     def test_already_best_needs_no_swaps(self):
         tiles = [(0.25, 0.5), (0.75, 0.5)]
-        self.assertEqual(restore._swaps(tiles, tiles), [])
+        self.assertEqual(restore._swaps_for(restore._best(tiles, tiles)), [])
 
     def test_many_windows_use_the_greedy_path(self):
         tiles = [(i / 10, 0.5) for i in range(9)]
         saved = list(reversed(tiles))
-        swaps = restore._swaps(saved, tiles)
+        swaps = restore._swaps_for(restore._best(saved, tiles))
         where = list(range(9))
         for i, j in swaps:
             where[i], where[j] = where[j], where[i]

@@ -23,7 +23,7 @@ MAIN = "Ancor Communications Inc ROG PG279Q #SERIAL2"
 
 
 def app(entry_id, wm_class=None, terminal=False):
-    return DesktopEntry(entry_id, entry_id, "x", wm_class, False, terminal, Path(entry_id))
+    return DesktopEntry(entry_id, entry_id, "x", wm_class, False, terminal)
 
 
 ENTRIES = {e.id: e for e in (
@@ -291,8 +291,7 @@ class TerminalApps(unittest.TestCase):
         chromium.update(app="org.omarchy.btop", title="btop", stable_id=None,
                         launch={"how": "tui", "entry": "btop.desktop", "via": "omarchy-tui",
                                 "app_id": "org.omarchy.btop"})
-        btop = DesktopEntry("btop.desktop", "btop", "btop --utf-force %U", None, False, False,
-                            Path("btop.desktop"), True)
+        btop = DesktopEntry("btop.desktop", "btop", "btop --utf-force %U", None, False, False, True)
         entries = dict(ENTRIES, **{"btop.desktop": btop})
         result = plan.build(session, empty(desk("tv-on-scene")), entries)
         step = next(w for w in result.windows if w.app == "org.omarchy.btop")
@@ -482,8 +481,8 @@ class SwitchingAndViews(unittest.TestCase):
 
     def test_app_name(self):
         entries = {"t3code.desktop": DesktopEntry("t3code.desktop", "T3 Code", "x", "com.t3tools.T3Code",
-                                                  False, False, Path("t")),
-                   "foot.desktop": DesktopEntry("foot.desktop", "Foot", "x", None, False, True, Path("f"))}
+                                                  False, False),
+                   "foot.desktop": DesktopEntry("foot.desktop", "Foot", "x", None, False, True)}
         self.assertEqual(plan.app_name("com.t3tools.T3Code", entries), "T3 Code")
         self.assertEqual(plan.app_name("foot", entries), "Foot")
         self.assertEqual(plan.app_name("weird", entries), "weird")

@@ -16,7 +16,7 @@ def entry(name, exec_, wm_class=None, **extra):
 
 class OmarchyTerminalApps(unittest.TestCase):
     def entries(self, terminal=True):
-        btop = DesktopEntry("btop.desktop", "btop", "btop", None, False, False, Path("btop.desktop"), terminal)
+        btop = DesktopEntry("btop.desktop", "btop", "btop", None, False, False, terminal)
         return {"btop.desktop": btop}
 
     def test_omarchy_tui_window_reopens_its_app_in_a_terminal(self):

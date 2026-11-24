@@ -21,13 +21,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from snapback.capture import record_files  # noqa: E402
-from snapback.omarchy import BLOCKS_FILE, MERGED_FILE  # noqa: E402
+from snapback import hypr  # noqa: E402
+from snapback.omarchy import BLOCKS_FILE, MERGED_FILE, state_files  # noqa: E402
 
 RAW = ROOT / "fixtures-raw"
 SAFE = ROOT / "tests" / "fixtures"
 TITLE_KEYS = {"title", "initialTitle", "lastwindowtitle", "xdgTag", "xdgDescription"}
 STATE_FILES = (BLOCKS_FILE, MERGED_FILE)
+
+
+def record_files(directory: Path) -> None:
+    """Write a live snapshot and Omarchy's state files into `directory`."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "snapshot.json").write_text(json.dumps(hypr.snapshot(), indent=2) + "\n")
+    # Fixtures keep Omarchy 4.5's file names whatever layout the live files use.
+    for name, path in zip(STATE_FILES, state_files()):
+        if path.exists():
+            (directory / name).write_text(path.read_text())
 
 
 def record(name: str, note: str) -> None:

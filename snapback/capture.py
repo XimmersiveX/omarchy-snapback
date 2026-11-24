@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import hypr
 from .geometry import Monitor, Placement, Rect, layout_frame, monitors_from_hypr, relative
-from .omarchy import BLOCKS_FILE, MERGED_FILE, WorkspaceState
+from .omarchy import WorkspaceState
 
 
 @dataclass
@@ -83,7 +83,7 @@ def capture(source: Source) -> list[CapturedWindow]:
             frame = layout_frame(rect, monitor, monitors)
         windows.append(CapturedWindow(
             address=client["address"],
-            app=client.get("initialClass") or client.get("class") or "",
+            app=app_of(client),
             title=client.get("title", ""),
             pid=client.get("pid", 0),
             workspace=name,
@@ -101,13 +101,6 @@ def capture(source: Source) -> list[CapturedWindow]:
     return windows
 
 
-def record_files(directory: Path, source_dir: Path | None = None) -> None:
-    """Write a live snapshot and Omarchy's state files into `directory`."""
-    from .omarchy import state_files
-
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "snapshot.json").write_text(json.dumps(hypr.snapshot(), indent=2) + "\n")
-    # Fixtures keep Omarchy 4.5's file names whatever layout the live files use.
-    for name, path in zip((BLOCKS_FILE, MERGED_FILE), state_files(source_dir)):
-        if path.exists():
-            (directory / name).write_text(path.read_text())
+def app_of(client: dict) -> str:
+    """A Hyprland client's app: its initialClass, the most stable name for it."""
+    return client.get("initialClass") or client.get("class") or ""

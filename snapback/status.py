@@ -67,7 +67,8 @@ def last_restore(path: Path | None = None) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def app_name(window: dict, entries: dict[str, DesktopEntry]) -> str:
+def saved_app_name(window: dict, entries: dict[str, DesktopEntry]) -> str:
+    """A saved window's app, by the entry it reopens through, for people."""
     launch = window.get("launch") or {}
     entry = entries.get(launch.get("entry") or "")
     return entry.name if entry else window.get("app") or "?"
@@ -84,7 +85,7 @@ def describe_session(path: Path, entries: dict[str, DesktopEntry]) -> dict:
     for w in windows:
         if w.get("skip"):
             continue
-        label = app_name(w, entries)
+        label = saved_app_name(w, entries)
         if label not in apps:
             apps.append(label)
     return {

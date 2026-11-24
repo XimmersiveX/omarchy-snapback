@@ -36,6 +36,7 @@ from typing import Iterable
 from urllib.parse import urlsplit
 
 from . import files
+from .capture import app_of
 
 
 @dataclass(frozen=True)
@@ -243,7 +244,7 @@ def open_tabs(clients: list[dict], home: Path | None = None) -> dict[str, dict]:
     window showing just a New Tab page has none."""
     result = {}
     for app, browser in BROWSERS.items():
-        mine = [c for c in clients if (c.get("initialClass") or c.get("class")) == app
+        mine = [c for c in clients if app_of(c) == app
                 and c.get("mapped", True) and not c.get("pinned")]
         if not mine:
             continue

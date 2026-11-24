@@ -29,7 +29,6 @@ class ConfigError(ValueError):
 class Config:
     never_restore: list[str] = field(default_factory=lambda: list(DEFAULT_NEVER_RESTORE))
     apps: dict[str, str] = field(default_factory=dict)
-    path: Path | None = None
 
 
 def config_path() -> Path:
@@ -45,7 +44,7 @@ def load(path: Path | None = None) -> Config:
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise ConfigError(f"{path}: {exc}") from exc
 
-    config = Config(path=path)
+    config = Config()
     if "never_restore" in data:
         never = data["never_restore"]
         if not isinstance(never, list) or not all(isinstance(p, str) for p in never):

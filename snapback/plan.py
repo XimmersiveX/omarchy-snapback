@@ -20,8 +20,10 @@ Where a window goes:
 Which open window is which saved one, always within the same app class:
     1. In the Hyprland session the save was made in, the very same window
        (Hyprland's stableId, which survives title changes and is never reused).
-    2. The same title.
-    3. Any other open window of the app, preferring one already on the
+    2. For a browser window whose tabs were saved, an open window holding
+       them (see below).
+    3. The same title.
+    4. Any other open window of the app, preferring one already on the
        saved window's workspace, then the most recently used. Titles change
        all the time (a browser's is its tab, T3 Code's its thread), and an app
        that keeps one window, like T3 Code, can't be opened a second time, so
@@ -60,7 +62,7 @@ from . import browsers
 from .apps import TUI_ID, DesktopEntry, exec_args
 from .capture import CapturedWindow, Source, capture
 from .geometry import Monitor, Placement, Rect, project
-from .omarchy import SLOTS
+from .omarchy import SLOTS, slot_of
 from .screens import FOLD_OMARCHY, Mapping, map_screens
 
 GEOMETRY_TOLERANCE = 2.0
@@ -204,7 +206,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
     open_windows = capture(source)
     same_instance = bool(source.instance) and session.get("hyprland_instance") == source.instance
     follow = fold == FOLD_OMARCHY
-    omarchy_folded = {(identity, (original - 1) % SLOTS + 1)
+    omarchy_folded = {(identity, slot_of(original))
                       for current, (original, identity) in state.merged.items()
                       if current in existing} if follow else set()
     # Workspaces Snapback's own folding passes over: Omarchy's folded ones, and
@@ -213,7 +215,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
     busy = {current for current in state.merged if current in existing}
     busy |= {int(w.workspace) for w in open_windows if w.workspace.isdecimal() and w.app not in setup_apps}
     by_block = {block: identity for identity, block in state.blocks.items()}
-    in_use = {(by_block[(n - 1) // SLOTS], (n - 1) % SLOTS + 1) for n in busy
+    in_use = {(by_block[(n - 1) // SLOTS], slot_of(n)) for n in busy
               if (n - 1) // SLOTS in by_block} if follow else set()
     mapping = map_screens(session, monitors, set(marks), omarchy_folded, in_use)
     targets = [_target(saved, state, by_identity, host, existing, mapping, follow)
@@ -404,7 +406,7 @@ def _join_merged(owner: str, slot: int, state, existing: dict[int, str], host: M
     outlives its workspace, and Omarchy forgets the record as soon as that
     number is created again, which would strand the windows."""
     for current, (original, identity) in sorted(state.merged.items()):
-        if identity == owner and (original - 1) % SLOTS + 1 == slot and current in existing:
+        if identity == owner and slot_of(original) == slot and current in existing:
             return str(current), existing.get(current) or (host.name if host else None), owner, slot, True
     return None
 

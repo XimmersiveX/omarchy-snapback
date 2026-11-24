@@ -15,7 +15,7 @@ TV = "LG Electronics LG TV SSCR2 SERIAL3"
 
 
 def app(entry_id, wm_class=None, terminal=False):
-    return DesktopEntry(entry_id, entry_id, "x", wm_class, False, terminal, Path(entry_id))
+    return DesktopEntry(entry_id, entry_id, "x", wm_class, False, terminal)
 
 
 ENTRIES = {e.id: e for e in (

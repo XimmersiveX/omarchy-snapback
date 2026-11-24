@@ -12,8 +12,7 @@ from snapback.apps import DesktopEntry
 from snapback.session import SCHEMA
 
 NOW = datetime(2026, 11, 23, 9, 0, tzinfo=timezone.utc)
-ENTRIES = {"t3code.desktop": DesktopEntry("t3code.desktop", "T3 Code", "x", None, False, False,
-                                          Path("t3code.desktop"))}
+ENTRIES = {"t3code.desktop": DesktopEntry("t3code.desktop", "T3 Code", "x", None, False, False)}
 
 
 def window(app, entry=None, skip=None, problem=None):

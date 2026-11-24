@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -32,7 +34,6 @@ class DesktopEntry:
     wm_class: str | None
     hidden_from_menus: bool      # NoDisplay=true: launchable, not listed
     terminal_emulator: bool      # Categories includes TerminalEmulator
-    path: Path
     terminal: bool = False       # Terminal=true: the app runs inside a terminal
 
 
@@ -128,7 +129,6 @@ def load_entries(dirs: list[Path]) -> dict[str, DesktopEntry]:
                 wm_class=values.get("StartupWMClass") or None,
                 hidden_from_menus=values.get("NoDisplay") == "true",
                 terminal_emulator="TerminalEmulator" in categories,
-                path=path,
                 terminal=values.get("Terminal") == "true",
             )
     return entries
@@ -203,7 +203,6 @@ TUI_ID = re.compile(r"^[A-Za-z0-9._-]+\Z")
 def exec_args(exec_line: str) -> list[str]:
     """A desktop entry's Exec line as arguments, without field codes (%U, %f...).
     None of them when the line can't be read (an unclosed quote)."""
-    import shlex
     try:
         words = shlex.split(exec_line)
     except ValueError:
@@ -291,7 +290,6 @@ class Resolver:
 
 def default_terminal() -> str | None:
     """The desktop entry xdg-terminal-exec opens, e.g. "foot.desktop"."""
-    import subprocess
     try:
         result = subprocess.run(["xdg-terminal-exec", "--print-id"],
                                 capture_output=True, text=True, timeout=5)

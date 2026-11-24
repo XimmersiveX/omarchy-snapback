@@ -2,7 +2,6 @@
 
 import copy
 import unittest
-from pathlib import Path
 
 from snapback import hypr, layout, plan, restore
 from snapback.apps import DesktopEntry
@@ -61,7 +60,7 @@ class SplitTree(unittest.TestCase):
 
 
 def entries():
-    return {f"{k}.desktop": DesktopEntry(f"{k}.desktop", k, k, k, False, False, Path(k)) for k in TILES}
+    return {f"{k}.desktop": DesktopEntry(f"{k}.desktop", k, k, k, False, False) for k in TILES}
 
 
 OPENS = {f"{k}.desktop": [(k, k.upper())] for k in TILES}

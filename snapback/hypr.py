@@ -16,11 +16,11 @@ class HyprError(RuntimeError):
     pass
 
 
-def query(what: str) -> object:
-    """Run `hyprctl -j <what>` and return the parsed JSON."""
+def query(what: str, *args: str) -> object:
+    """Run `hyprctl -j <what> [args]` and return the parsed JSON."""
     try:
         result = subprocess.run(
-            ["hyprctl", "-j", what],
+            ["hyprctl", "-j", what, *args],
             capture_output=True, text=True, errors="replace", timeout=5, check=True,
         )
     except FileNotFoundError as exc:
@@ -85,17 +85,8 @@ def dispatch(method: str, **args: object) -> None:
 
 def option(name: str) -> object:
     """A Hyprland option's value, e.g. option("misc:focus_on_activate") -> True."""
-    data = _getoption(name)
+    data = query("getoption", name)
     for key in ("bool", "int", "float", "str"):
-        if key in data:
+        if isinstance(data, dict) and key in data:
             return data[key]
     raise HyprError(f"can't read Hyprland option {name}")
-
-
-def _getoption(name: str) -> dict:
-    try:
-        result = subprocess.run(["hyprctl", "-j", "getoption", name],
-                                capture_output=True, text=True, errors="replace", timeout=5, check=True)
-        return json.loads(result.stdout)
-    except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
-        raise HyprError(f"can't read Hyprland option {name}: {exc}") from exc

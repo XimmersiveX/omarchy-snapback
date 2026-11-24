@@ -44,6 +44,7 @@ function parseStatus(text) {
     restoring: raw.restoring === true,
     sessions: sessions.filter(function (s) { return s && NAME_RE.test(String(s.name)) }).map(parseSession),
     lastRestore: parseRestore(raw.lastRestore),
+    autosaveError: parseAutosaveError(raw.autosaveError),
     screens: (Array.isArray(raw.screens) ? raw.screens.slice(0, 8) : []).filter(function (s) {
       return s && typeof s.connector === "string" && /^[A-Za-z0-9._-]{1,32}$/.test(s.connector)
     }).map(function (s) {
@@ -63,6 +64,12 @@ function parseSession(s) {
     attention: num(s.attention),
     apps: (Array.isArray(s.apps) ? s.apps.slice(0, MAX_APPS) : []).map(function (a) { return str(a, 60) })
   }
+}
+
+// The watcher's last save, when it failed: { at, error }, else null.
+function parseAutosaveError(e) {
+  if (!e || typeof e !== "object" || !e.error) return null
+  return { at: str(e.at, 40), error: str(e.error, 300) }
 }
 
 function parseRestore(r) {

@@ -54,6 +54,11 @@ test("parseStatus reads a status", () => {
   assert.strictEqual(s.lastRestore.back, 6)
   assert.strictEqual(s.lastRestore.trigger, "login")
   assert.strictEqual(s.lastRestore.problems[0].app, "steam")
+  assert.strictEqual(s.autosaveError, null)
+  const failing = M.parseStatus(JSON.stringify({ ...STATUS, autosaveError: { at: "2026-11-23T17:48:33-07:00", error: "x".repeat(900) } }))
+  assert.strictEqual(failing.autosaveError.at, "2026-11-23T17:48:33-07:00")
+  assert.strictEqual(failing.autosaveError.error.length, 300)
+  assert.strictEqual(M.parseStatus(JSON.stringify({ autosaveError: { at: "x" } })).autosaveError, null)
 })
 
 test("parseStatus refuses junk and fills gaps safely", () => {

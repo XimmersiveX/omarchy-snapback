@@ -10,7 +10,7 @@ from argparse import Namespace
 from pathlib import Path
 from unittest import mock
 
-from snapback import restore, session, setup, watch
+from snapback import hypr, restore, session, setup, status, watch
 from snapback.__main__ import restore_summary
 from snapback.plan import WindowStep
 
@@ -228,6 +228,27 @@ class Hook(unittest.TestCase):
             setup.remove(self.path)
         self.assertIn("mine", self.path.read_text())
 
+    def test_an_update_brings_its_own_hook_up_to_date(self):
+        root = Path("/home/me/plugins/snapback")
+        current = setup.hook_text(root)
+        old = current.replace("python3 -P -m", "python3 -m")  # as written before -P
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text(old)
+        self.assertTrue(setup.refresh(self.path, root))
+        self.assertEqual(self.path.read_text(), current)
+        self.assertFalse(setup.refresh(self.path, root))  # already current
+
+    def test_refresh_leaves_other_hooks_alone(self):
+        root = Path("/home/me/plugins/snapback")
+        self.assertFalse(setup.refresh(self.path, root))  # off: not created
+        self.assertFalse(self.path.exists())
+        self.path.parent.mkdir(parents=True)
+        other = setup.hook_text(Path("/home/me/Work/snapback")).replace("-P ", "")
+        for text in (other, "#!/bin/bash\necho mine\n"):  # another copy's, someone else's
+            self.path.write_text(text)
+            self.assertFalse(setup.refresh(self.path, root))
+            self.assertEqual(self.path.read_text(), text)
+
 
 class LoginSummary(unittest.TestCase):
     def report(self, *outcomes):
@@ -270,6 +291,45 @@ class Login(unittest.TestCase):
         self.assertTrue((Path(tmp.name) / "snapback/sessions/previous.json").exists())
         record = json.loads((Path(tmp.name) / "snapback/last-restore.json").read_text())
         self.assertEqual(record["errors"], ["a bug"])
+
+
+class AutosaveFailures(unittest.TestCase):
+    """The watcher's saves are recorded for the panel, failed or not."""
+
+    def setUp(self):
+        import snapback.__main__ as cli
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        for patch in (mock.patch.dict("os.environ", {"XDG_STATE_HOME": tmp.name}),
+                      mock.patch.object(cli.Source, "live", lambda: None),
+                      mock.patch.object(cli, "load_resolver", lambda: None)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.cli = cli
+
+    def save(self, outcome):
+        def live(source, resolver):
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with mock.patch.object(self.cli, "save_live", live):
+            try:
+                return self.cli.autosaver()()
+            except Exception:  # noqa: BLE001 - the watcher catches it; here only the record matters
+                return None
+
+    def test_a_failed_save_is_recorded(self):
+        self.save(ValueError("broken"))
+        self.assertEqual(status.autosave_error()["error"], "ValueError: broken")
+        self.save(hypr.HyprError("hyprctl clients timed out"))  # Snapback's own: no type name
+        self.assertEqual(status.autosave_error()["error"], "hyprctl clients timed out")
+
+    def test_a_save_that_works_clears_it(self):
+        self.save(OSError("disk full"))
+        self.assertIsNotNone(status.autosave_error())
+        self.assertTrue(self.save({"snapback": 1, "windows": [], "monitors": []}))
+        self.assertIsNone(status.autosave_error())
 
 
 class Switch(unittest.TestCase):

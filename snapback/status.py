@@ -24,6 +24,31 @@ def report_path() -> Path:
     return files.state_dir() / "last-restore.json"
 
 
+def autosave_path() -> Path:
+    return files.state_dir() / "autosave-error.json"
+
+
+def record_autosave(error: str | None, path: Path | None = None, now: datetime | None = None) -> None:
+    """The watcher's last save failed (`error`), or worked (None clears it)."""
+    path = path or autosave_path()
+    try:
+        if error is None:
+            path.unlink(missing_ok=True)
+        else:
+            at = (now or datetime.now().astimezone()).isoformat(timespec="seconds")
+            files.write_json({"at": at, "error": error}, path)
+    except OSError:
+        pass  # saving is what matters; this only tells the panel about it
+
+
+def autosave_error(path: Path | None = None) -> dict | None:
+    try:
+        data = json.loads((path or autosave_path()).read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) and data.get("error") else None
+
+
 def restore_record(name: str, trigger: str, report: dict | None = None,
                    error: str | None = None, check: list | None = None,
                    now: datetime | None = None) -> dict:
@@ -127,7 +152,7 @@ def hook_state(path: Path, marker: str) -> str:
 def snapshot(*, hook: str, hook_path: Path, watching: bool, restoring: bool, version: str,
              entries: dict[str, DesktopEntry], directory: Path | None = None,
              report: Path | None = None, screens: list[dict] | None = None,
-             fold: str = "omarchy") -> dict:
+             fold: str = "omarchy", autosave: Path | None = None) -> dict:
     return {
         "version": version,
         "atLogin": hook,
@@ -136,6 +161,7 @@ def snapshot(*, hook: str, hook_path: Path, watching: bool, restoring: bool, ver
         "restoring": restoring,
         "sessions": list_sessions(entries, directory),
         "lastRestore": last_restore(report),
+        "autosaveError": autosave_error(autosave),
         "screens": screens or [],
         "fold": fold,
     }

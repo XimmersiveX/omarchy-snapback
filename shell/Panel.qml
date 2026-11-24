@@ -37,6 +37,7 @@ Panel {
     .concat(undoSessions.map(function (s) { return "session:" + s.name }))
     .concat(snap.screens.length > 1 ? ["main"] : [])
   // The last restore is only worth showing when something didn't come back.
+  readonly property bool autosaveFailing: snap.watching && snap.autosaveError !== null
   readonly property bool restoreTrouble: snap.lastRestore !== null
     && (snap.lastRestore.problems.length > 0 || snap.lastRestore.errors.length > 0
         || snap.lastRestore.kept.length > 0 || snap.lastRestore.misplaced > 0)
@@ -311,6 +312,13 @@ Panel {
           }
 
           PlainLine {
+            visible: root.autosaveFailing
+            text: root.autosaveFailing
+              ? strings.t("autosave.failed").arg(root.when(snap.autosaveError.at)).arg(snap.autosaveError.error) : ""
+            color: root.urgent
+          }
+
+          PlainLine {
             visible: snap.actionStatus !== ""
             text: snap.actionStatus
             color: snap.actionIsError ? root.urgent : root.dim
@@ -495,6 +503,7 @@ Panel {
   function autosaveLine() {
     if (!snap.loaded) return ""
     if (!snap.watching) return strings.t("autosave.off")
+    if (root.autosaveFailing) return strings.t("autosave.failing")
     var last = snap.sessions.filter(function (s) { return s.name === "last" })[0]
     return last && last.savedAt ? strings.t("autosave.on").arg(root.when(last.savedAt)) : ""
   }

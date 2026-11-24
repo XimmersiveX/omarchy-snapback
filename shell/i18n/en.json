@@ -11,6 +11,8 @@
   "foreign.help": "%1 exists but wasn't written by Snapback, so it's left alone.",
   "autosave.on": "Autosaved %1",
   "autosave.off": "Autosave isn't running",
+  "autosave.failing": "Autosave failing",
+  "autosave.failed": "The last autosave failed %1: %2. Details: journalctl --user -u snapback",
   "sessions": "Setups",
   "sessions.none": "No setups saved yet",
   "session.last": "Latest autosave",

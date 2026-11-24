@@ -318,7 +318,22 @@ def autosaver(name: str = session.DEFAULT_NAME):
         last[0] = watch.comparable(saved)
         return True
 
-    return save
+    def save_and_record() -> bool:
+        # Recorded for the panel: a watcher that keeps failing is otherwise
+        # only in the journal, while the autosave quietly goes stale. A
+        # refusal (nothing to reopen) is the save working as meant.
+        try:
+            changed = save()
+        except session.SessionError:
+            status.record_autosave(None)
+            raise
+        except Exception as exc:
+            status.record_autosave(str(exc) if isinstance(exc, EXPECTED) else f"{type(exc).__name__}: {exc}")
+            raise
+        status.record_autosave(None)
+        return changed
+
+    return save_and_record
 
 
 def may_save() -> str | None:
@@ -330,6 +345,12 @@ def may_save() -> str | None:
 def cmd_watch(args: argparse.Namespace) -> int:
     log = (lambda line: print(f"snapback: {line}", flush=True)) if args.verbose else (lambda line: None)
     with watch.WatchLock():
+        # An update replaces Snapback's folder but not the login hook.
+        try:
+            if setup.refresh():
+                log(f"brought {setup.hook_path()} up to date")
+        except OSError as exc:
+            log(f"couldn't bring the login hook up to date: {exc}")
         sock = watch.event_socket()
         watch.Watcher(autosaver(), may_save, log=log).run(watch.events_from(sock))
     return 0
@@ -447,6 +468,10 @@ def cmd_status(args: argparse.Namespace) -> int:
                 "foreign": f"off ({setup.hook_path()} exists but wasn't written by Snapback)"}
     print(f"Restore at login: {at_login[snap['atLogin']]}")
     print(f"Autosave: {'running' if snap['watching'] else 'not running'}")
+    failed = snap["autosaveError"]
+    if failed and snap["watching"]:
+        print(f"  the last save failed ({failed.get('at')}): {failed['error']}")
+        print("  details: journalctl --user -u snapback")
     if snap["restoring"]:
         print("A restore is running.")
     print()

@@ -104,8 +104,12 @@ ShellRoot {
                               counts: { placed: 6 }, problems: [], errors: [], misplaced: 0, kept: [] } })
       check("a clean one isn't", barPanel.restoreTrouble, false)
       check("autosave line", barPanel.autosaveLine(), "Autosaved just now")
+      status({ autosaveError: { at: new Date().toISOString(), error: "hyprctl clients timed out" } })
+      check("a failing autosave says so", barPanel.autosaveLine(), "Autosave failing")
+      check("and shows why", barPanel.autosaveFailing, true)
       status({ watching: false })
       check("autosave off", barPanel.autosaveLine(), "Autosave isn't running")
+      check("a stopped watcher's old failure isn't shown", barPanel.autosaveFailing, false)
 
       console.log("switch to")
       status({})

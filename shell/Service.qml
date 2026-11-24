@@ -24,6 +24,7 @@ Item {
   property bool restoring: false
   property var sessions: []
   property var lastRestore: null
+  property var autosaveError: null     // { at, error } while the watcher's saves fail
   property var screens: []
   property string hookPath: ""
 
@@ -63,6 +64,7 @@ Item {
     restoring = parsed.restoring
     if (!_same(sessions, parsed.sessions)) sessions = parsed.sessions
     if (!_same(lastRestore, parsed.lastRestore)) lastRestore = parsed.lastRestore
+    if (!_same(autosaveError, parsed.autosaveError)) autosaveError = parsed.autosaveError
     if (!_same(screens, parsed.screens)) screens = parsed.screens
     if (_desiredAtLogin !== -1 && !setupProcess.running && atLoginOn === (atLogin === "on"))
       _desiredAtLogin = -1

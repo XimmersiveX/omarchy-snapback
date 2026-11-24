@@ -63,6 +63,24 @@ def install(path: Path | None = None, root: Path | None = None) -> Path:
     return path
 
 
+def refresh(path: Path | None = None, root: Path | None = None) -> bool:
+    """Bring the hook up to date after Snapback is updated, since an update
+    only replaces Snapback's own folder. Only a hook Snapback wrote for this
+    same folder is rewritten: never one that's off, someone else's, or
+    pointing at another copy of Snapback. True when it was rewritten."""
+    path, root = path or hook_path(), root or package_root()
+    try:
+        text = path.read_text()
+    except OSError:
+        return False
+    if MARKER not in text or text == hook_text(root):
+        return False
+    if shlex.quote(f"--setenv=PYTHONPATH={root}") not in text:
+        return False
+    path.write_text(hook_text(root))
+    return True
+
+
 def remove(path: Path | None = None) -> bool:
     path = path or hook_path()
     if not path.exists():

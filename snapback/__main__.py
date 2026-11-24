@@ -15,6 +15,7 @@ from typing import Callable
 
 from . import __version__, apps, browsers, config, hypr, omarchy, plan, restore, screens, session, setup, status, watch
 from .capture import Source, capture
+from .geometry import monitors_from_hypr
 
 TESTED_HYPRLAND = ("v0.56",)
 # Errors Snapback explains itself; anything else is a bug and gets a traceback.
@@ -468,10 +469,12 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def screen_list(source: Source | None = None) -> list[dict]:
-    """Today's screens left to right, with which one is main (marked or guessed)."""
-    source = source or Source.live()
-    monitors = sorted(source.monitors(), key=lambda m: (m.box.x, m.box.y))
+def screen_list() -> list[dict]:
+    """Today's screens left to right, with which one is main (marked or guessed).
+    The panel asks every few seconds, so only the monitors are queried."""
+    connectors = omarchy.WorkspaceState.load().connectors
+    monitors = sorted(monitors_from_hypr(hypr.query("monitors"), connectors),
+                      key=lambda m: (m.box.x, m.box.y))
     marks = screens.load_marks()
     main = screens.pick_main([(m.identity, m.box) for m in monitors], marks)
     names = {1: ["only"], 2: ["left", "right"], 3: ["left", "middle", "right"]}.get(len(monitors))
@@ -482,13 +485,14 @@ def screen_list(source: Source | None = None) -> list[dict]:
 def cmd_screens(args: argparse.Namespace) -> int:
     if args.fold:
         screens.set_fold(args.fold)
+    listing = screen_list()
     if args.main:
-        found = [s for s in screen_list() if args.main in (s["connector"], s["identity"])]
+        found = [s for s in listing if args.main in (s["connector"], s["identity"])]
         if not found:
             print(f"snapback: no screen {args.main!r} is plugged in", file=sys.stderr)
             return 1
-        screens.mark_main(found[0]["identity"], [s["identity"] for s in screen_list()])
-    listing = screen_list()
+        screens.mark_main(found[0]["identity"], [s["identity"] for s in listing])
+        listing = screen_list()
     if args.json:
         print(json.dumps({"screens": listing, "fold": screens.load_fold()}, indent=2))
         return 0

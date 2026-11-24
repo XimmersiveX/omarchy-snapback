@@ -16,7 +16,7 @@ from . import files, session
 from .apps import DesktopEntry
 
 # The sessions Snapback keeps itself, listed first, in this order.
-OWN_SESSIONS = (session.DEFAULT_NAME, session.UNDO_NAME, "previous")
+OWN_SESSIONS = (session.DEFAULT_NAME, session.UNDO_NAME, session.PREVIOUS_NAME)
 OUTCOMES = ("placed", "in-place", "failed", "skipped", "unrestorable")
 
 

@@ -1,20 +1,9 @@
-"""Snapback command line.
-
-    python -m snapback inspect [--json] [--from DIR]
-    python -m snapback save [NAME] [--dry-run] [--json] [--force]
-    python -m snapback restore [NAME] [--dry-run] [--json] [--close-others] [--at-login] [--notify] [--file PATH] [--from DIR] [--timeout S]
-    python -m snapback delete NAME
-    python -m snapback watch [--verbose]
-    python -m snapback login
-    python -m snapback setup [--remove]
-    python -m snapback status [--json]
-    python -m snapback screens [--main SCREEN] [--fold omarchy|snapback] [--json]
-    python -m snapback doctor
-"""
+"""Snapback command line: save, restore and switch window setups."""
 
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import shutil
 import subprocess
@@ -22,6 +11,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
+from typing import Callable
 
 from . import __version__, apps, browsers, config, hypr, omarchy, plan, restore, screens, session, setup, status, watch
 from .capture import Source, capture
@@ -63,20 +53,43 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def load_resolver() -> apps.Resolver:
+    """Which app made a window, with the apps installed and the config as they are now."""
+    cfg = config.load()
+    return apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
+
+
+def save_live(source: Source, resolver: apps.Resolver,
+              tabs: Callable[[list[dict]], dict] = browsers.open_tabs) -> dict:
+    """The session for the live desk in `source`."""
+    return session.build(source, resolver, apps.read_proc, versions_of(source),
+                         marks=screens.load_marks(), tabs=tabs)
+
+
+def plan_restore(saved: dict, source: Source, resolver: apps.Resolver, tabs: dict | None,
+                 name: str = "") -> plan.Plan:
+    """The plan for putting `saved` back. `tabs` are the open browser windows'
+    tabs, or None when planning against a recording (nothing live to ask)."""
+    live = {} if tabs is None else {"tabs": tabs, "cold": browsers.cold_restore}
+    return plan.build(saved, source, resolver.entries, resolver.is_never, apps.default_terminal(),
+                      name=name, marks=screens.load_marks(), fold=screens.load_fold(), **live)
+
+
+def record(name: str, trigger: str, report: restore.Report | None = None, **details) -> None:
+    """What a restore did, for the panel."""
+    status.record_restore(status.restore_record(
+        name, trigger, report.to_dict() if report else None, **details))
+
+
 def cmd_save(args: argparse.Namespace) -> int:
     path = session.session_path(args.name)
-    cfg = config.load()
-    resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
-    if args.source:
+    resolver = load_resolver()
+    if args.source:  # a recording has no live processes or browsers
         source = Source.from_dir(Path(args.source))
-        procs = lambda pid: apps.ProcInfo()  # noqa: E731 - a recording has no live processes
-        versions = {}
+        saved = session.build(source, resolver, lambda pid: apps.ProcInfo(), {},
+                              marks=screens.load_marks())
     else:
-        source = Source.live()
-        procs = apps.read_proc
-        versions = versions_of(source)
-    saved = session.build(source, resolver, procs, versions, marks=screens.load_marks(),
-                          tabs=(lambda clients: {}) if args.source else browsers.open_tabs)
+        saved = save_live(Source.live(), resolver)
 
     if args.json:
         print(json.dumps(saved, indent=2))
@@ -117,15 +130,10 @@ def cmd_restore(args: argparse.Namespace) -> int:
         return 2
     path = Path(args.file) if args.file else session.session_path(args.name)
     saved = session.read(path)
-    cfg = config.load()
-    resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
+    resolver = load_resolver()
     source = Source.from_dir(Path(args.source)) if args.source else Source.live()
-    terminal = apps.default_terminal()
-    marks, fold = screens.load_marks(), screens.load_fold()
-    live = {} if args.source else {"tabs": browsers.open_tabs(source.snapshot["clients"]),
-                                   "cold": browsers.cold_restore}
-    result = plan.build(saved, source, resolver.entries, resolver.is_never, terminal,
-                        name=path.stem, marks=marks, fold=fold, **live)
+    tabs = None if args.source else browsers.open_tabs(source.snapshot["clients"])
+    result = plan_restore(saved, source, resolver, tabs, name=path.stem)
     if args.dry_run:
         if args.json:
             print(json.dumps(result.to_dict(), indent=2))
@@ -133,30 +141,26 @@ def cmd_restore(args: argparse.Namespace) -> int:
             show_plan(result, source, args.close_others)
         return 0
 
-    trigger = "login" if args.at_login else "manual"
     with restore.Lock():
         if args.close_others:
             # Switching: keep the desk as it is now, so switching to UNDO_NAME
             # undoes this. The session being restored was read above, so switching
             # to UNDO_NAME itself swaps the two. An empty desk is kept too. Only
             # once the lock is held: a half-restored desk is no undo.
-            undo = session.build(source, resolver, apps.read_proc, versions_of(source), marks=marks,
-                                 tabs=browsers.open_tabs)
+            undo = save_live(source, resolver, tabs=lambda clients: tabs)
             session.write(undo, session.session_path(session.UNDO_NAME), force=True)
-        log =(lambda line: None) if args.json else (lambda line: print(f"  {line}"))
+        log = (lambda line: None) if args.json else (lambda line: print(f"  {line}"))
         try:
             report = restore.run(result, restore.LiveDesk(), timeout=args.timeout, log=log,
                                  close_others=args.close_others)
         except (restore.RestoreError, hypr.HyprError) as exc:
-            status.record_restore(status.restore_record(path.stem, trigger, error=str(exc)))
+            record(path.stem, "manual", error=str(exc))
             raise
     # Check: planned again now, everything should already be in place.
     now = Source.live()
-    after = plan.build(saved, now, resolver.entries, resolver.is_never, terminal,
-                       marks=marks, fold=fold, tabs=browsers.open_tabs(now.snapshot["clients"]))
+    after = plan_restore(saved, now, resolver, browsers.open_tabs(now.snapshot["clients"]))
     off = [w for w in after.windows if w.action not in ("in-place", "skip", "problem")]
-    status.record_restore(status.restore_record(
-        path.stem, trigger, report.to_dict(), check=[w.to_dict() for w in off]))
+    record(path.stem, "manual", report, check=[w.to_dict() for w in off])
     if args.json:
         print(json.dumps({**report.to_dict(), "check": [w.to_dict() for w in off]}, indent=2))
     else:
@@ -288,7 +292,13 @@ def show_plan(result: plan.Plan, source: Source, close_others: bool = False) -> 
 
 def versions_of(source: Source) -> dict:
     return {"hyprland": source.snapshot["version"].get("tag"),
-            "omarchy": omarchy.installed_version(), "snapback": __version__}
+            "omarchy": omarchy_version(), "snapback": __version__}
+
+
+@functools.cache
+def omarchy_version() -> str | None:
+    """Asked once per process: the watcher saves every minute."""
+    return omarchy.installed_version()
 
 
 def autosaver(name: str = session.DEFAULT_NAME):
@@ -300,11 +310,7 @@ def autosaver(name: str = session.DEFAULT_NAME):
         last = [None]
 
     def save() -> bool:
-        cfg = config.load()
-        resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
-        source = Source.live()
-        saved = session.build(source, resolver, apps.read_proc, versions_of(source),
-                              marks=screens.load_marks(), tabs=browsers.open_tabs)
+        saved = save_live(Source.live(), load_resolver())
         if watch.comparable(saved) == last[0]:
             return False
         session.write(saved, path)
@@ -343,34 +349,30 @@ def cmd_login(args: argparse.Namespace) -> int:
     if path.exists():
         # The session as it was when the desk went down, kept apart from the
         # autosave, so a restore that goes wrong can't lose it.
-        backup = session.session_path("previous")
+        backup = session.session_path(session.PREVIOUS_NAME)
         try:
             shutil.copy2(path, backup)
             backup.chmod(0o600)
         except OSError as exc:
-            print(f"snapback: couldn't keep the session as 'previous': {exc}", file=sys.stderr, flush=True)
+            print(f"snapback: couldn't keep the session as {session.PREVIOUS_NAME!r}: {exc}",
+                  file=sys.stderr, flush=True)
+        name = session.DEFAULT_NAME
         try:
-            saved = session.read(path)
-            cfg = config.load()
-            resolver = apps.Resolver(apps.load_entries(apps.data_dirs()), cfg.apps, cfg.never_restore)
-            terminal = apps.default_terminal()
-            source = Source.live()
-            result = plan.build(saved, source, resolver.entries, resolver.is_never, terminal,
-                                name="last", marks=screens.load_marks(), fold=screens.load_fold(),
-                                tabs=browsers.open_tabs(source.snapshot["clients"]),
-                                cold=browsers.cold_restore)
+            saved, resolver, source = session.read(path), load_resolver(), Source.live()
+            result = plan_restore(saved, source, resolver, browsers.open_tabs(source.snapshot["clients"]),
+                                  name=name)
             with restore.Lock():
                 report = restore.run(result, restore.LiveDesk(), timeout=args.timeout)
             print("snapback: " + ": ".join(restore_summary(report)), flush=True)  # no titles in the journal
-            status.record_restore(status.restore_record("last", "login", report.to_dict()))
+            record(name, "login", report)
             notify(*restore_summary(report))
         except Exception as exc:  # noqa: BLE001 - whatever went wrong, autosave still starts
             if not isinstance(exc, EXPECTED):
                 traceback.print_exc()
             print(f"snapback: restore failed: {exc}", file=sys.stderr, flush=True)
-            status.record_restore(status.restore_record("last", "login", error=str(exc)))
+            record(name, "login", error=str(exc))
             notify("Snapback couldn't restore your windows",
-                   f"{exc}\nYour session is kept as 'previous'.", urgent=True)
+                   f"{exc}\nYour session is kept as {session.PREVIOUS_NAME!r}.", urgent=True)
     return cmd_watch(args)
 
 
@@ -551,8 +553,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", action="store_true", help="print the plan as JSON")
     p.add_argument("--file", metavar="PATH", help="read the session from this file instead")
     p.add_argument("--from", dest="source", metavar="DIR", help="plan against a recorded fixture")
-    p.add_argument("--at-login", action="store_true",
-                   help="record it as the restore at login")
     p.add_argument("--timeout", type=float, default=30.0, metavar="S",
                    help="seconds to wait for reopened apps' windows (default 30)")
     p.add_argument("--notify", action="store_true", help="say how it went in a desktop notification")

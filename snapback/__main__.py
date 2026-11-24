@@ -361,7 +361,7 @@ def cmd_login(args: argparse.Namespace) -> int:
                                 cold=browsers.cold_restore)
             with restore.Lock():
                 report = restore.run(result, restore.LiveDesk(), timeout=args.timeout)
-            print(json.dumps(report.to_dict()), flush=True)
+            print("snapback: " + ": ".join(restore_summary(report)), flush=True)  # no titles in the journal
             status.record_restore(status.restore_record("last", "login", report.to_dict()))
             notify(*restore_summary(report))
         except Exception as exc:  # noqa: BLE001 - whatever went wrong, autosave still starts

@@ -197,7 +197,7 @@ def ids_from_unit(unit: str | None) -> list[str]:
 
 
 OMARCHY_TUI = "org.omarchy."
-TUI_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+TUI_ID = re.compile(r"^[A-Za-z0-9._-]+\Z")
 
 
 def exec_args(exec_line: str) -> list[str]:

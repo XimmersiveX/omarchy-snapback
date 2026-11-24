@@ -13,9 +13,10 @@ Item {
   readonly property string pluginDir: decodeURIComponent(String(Qt.resolvedUrl(".."))
     .replace(/^file:\/\//, "")).replace(/\/$/, "")
   // No bytecode: Omarchy reloads a plugin when a file in its folder changes.
+  // -P: never import from the current folder (the shell's is home).
   // Replaced by tests, so they never reach the real command line.
   property var cliPrefix: ["env", "PYTHONPATH=" + pluginDir, "PYTHONDONTWRITEBYTECODE=1",
-                           "python3", "-m", "snapback"]
+                           "python3", "-P", "-m", "snapback"]
 
   property bool loaded: false
   property string atLogin: ""          // "on", "off", "foreign"

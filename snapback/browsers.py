@@ -52,7 +52,7 @@ BROWSERS = {b.app: b for b in (
 SCHEMES = ("http", "https", "file")
 MAX_URL = 8192
 MAX_FILE = 64 << 20
-PROFILE_RE = re.compile(r"^(Default|Profile \d+)$")
+PROFILE_RE = re.compile(r"^(Default|Profile \d+)\Z")
 
 # SNSS command ids (Chromium's session_service_commands.cc).
 SET_TAB_WINDOW, SET_TAB_INDEX, UPDATE_NAVIGATION, SELECTED_NAVIGATION = 0, 2, 6, 7
@@ -280,6 +280,13 @@ def cold_restore(app: str, profile: str, home: Path | None = None) -> bool:
     left off."""
     browser = BROWSERS.get(app)
     return bool(browser) and not running(browser, home) and restores_itself(browser, profile, home)
+
+
+def is_browser(app: str, entry_id: str) -> bool:
+    """Whether a saved window is one of the browsers whose tabs Snapback
+    reopens, by both its class and its desktop entry, so a setup file can't
+    hand its URLs to any other app."""
+    return app in BROWSERS and entry_id == f"{app}.desktop"
 
 
 def new_window(exec_args: list[str], profile: str, urls: list[str]) -> list[str] | None:

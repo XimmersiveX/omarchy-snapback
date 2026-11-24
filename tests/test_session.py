@@ -110,7 +110,7 @@ class Files(unittest.TestCase):
         self.assertTrue(self.path.exists())
 
     def test_names(self):
-        for bad in ("", "../x", "a/b", ".hidden", "x.json", "a" * 65, "with space"):
+        for bad in ("", "../x", "a/b", ".hidden", "x.json", "a" * 65, "with space", "name\n"):
             with self.assertRaises(SessionError, msg=bad):
                 session_path(bad, self.dir)
         self.assertEqual(session_path("before-update_2", self.dir).name, "before-update_2.json")

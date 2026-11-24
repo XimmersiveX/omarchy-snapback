@@ -125,6 +125,14 @@ class AfterReboot(unittest.TestCase):
         self.assertEqual(t1.command, ["uwsm-app", "--", "xdg-terminal-exec", "--dir=/home/me/work"])
         self.assertEqual(t1.notes, [])
 
+    def test_only_a_terminal_opens_in_a_folder(self):
+        session = saved_scene()
+        t1 = next(w for w in session["windows"] if w["app"] == "snapback-test-t1")
+        t1["launch"]["entry"] = "t3code.desktop"  # a setup file edited by hand
+        _, w = make(session, empty(desk("tv-on-scene")))
+        self.assertEqual(w["snapback-test-t1"].action, "problem")
+        self.assertIsNone(w["snapback-test-t1"].command)
+
     def test_unresolved_windows_are_reported_not_guessed(self):
         f1 = self.w["snapback-test-f1"]
         self.assertEqual(f1.action, "problem")
@@ -520,6 +528,12 @@ class BrowserTabs(unittest.TestCase):
     def test_saved_urls_are_checked_again_before_opening(self):
         _, w = make(with_tabs(["--evil", "chrome://newtab/"]), empty(desk("tv-on-scene")))
         self.assertEqual(w["chromium"].command, ["uwsm-app", "--", "chromium.desktop"])
+
+    def test_saved_tabs_only_go_to_a_browser(self):
+        session = with_tabs()
+        session["windows"][0]["launch"]["entry"] = "t3code.desktop"  # a setup file edited by hand
+        _, w = make(session, empty(desk("tv-on-scene")))
+        self.assertEqual(w["chromium"].command, ["uwsm-app", "--", "t3code.desktop"])
 
     def test_saving_keeps_tabs_only_for_windows_that_have_some(self):
         source = desk("tv-on-scene")

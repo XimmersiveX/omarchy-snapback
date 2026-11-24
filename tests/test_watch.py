@@ -186,7 +186,7 @@ class Hook(unittest.TestCase):
         text = self.path.read_text()
         self.assertIn("systemd-run --user --unit=snapback", text)
         self.assertIn("'--setenv=PYTHONPATH=/home/me/my code'", text)
-        self.assertTrue(text.rstrip().endswith("python3 -m snapback login --verbose"))
+        self.assertTrue(text.rstrip().endswith("python3 -P -m snapback login --verbose"))
         setup.install(self.path)  # again is fine
         self.assertTrue(setup.remove(self.path))
         self.assertFalse(self.path.exists())
@@ -285,7 +285,7 @@ class Switch(unittest.TestCase):
         with mock.patch.dict("os.environ", {"XDG_STATE_HOME": tmp.name, "XDG_RUNTIME_DIR": tmp.name}), \
                 mock.patch.object(cli.Source, "live", lambda: cli.Source.from_dir(fixture)), \
                 mock.patch.object(cli.browsers, "open_tabs", lambda clients: {}), \
-                restore.Lock():
+                mock.patch("sys.stderr"), restore.Lock():
             self.assertEqual(cli.main(["restore", "work", "--close-others"]), 1)
         self.assertEqual((sessions / "before-switch.json").read_text(), "the real undo")
 

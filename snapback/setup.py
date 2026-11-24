@@ -36,7 +36,9 @@ def unit_command(command: str, root: Path | None = None) -> list[str]:
             "--property=Type=exec", "--setenv=PATH", "--setenv=HYPRLAND_INSTANCE_SIGNATURE",
             "--setenv=XDG_RUNTIME_DIR", f"--setenv=PYTHONPATH={root}",
             "--setenv=PYTHONDONTWRITEBYTECODE=1",  # the plugin reloads when its files change
-            "python3", "-m", "snapback", command, "--verbose"]
+            # -P: never import from the current folder, so a stray ~/json.py
+            # (or a clone at ~/snapback) can't stand in for Snapback's code.
+            "python3", "-P", "-m", "snapback", command, "--verbose"]
 
 
 def hook_text(root: Path | None = None) -> str:

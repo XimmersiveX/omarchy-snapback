@@ -293,6 +293,9 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
                 continue
             step.command = tui_command(app_id, entry)
         elif launch["how"] == "terminal":
+            if not entry.terminal_emulator:
+                step.action, step.reason = "problem", f"{entry.id} isn't a terminal"
+                continue
             cwd = launch.get("cwd")
             if cwd and not is_dir(cwd):
                 step.notes.append(f"{cwd} no longer exists; opens in your home folder")
@@ -309,7 +312,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
             if urls and cold(saved["app"], profile):
                 step.notes.append("the browser isn't open and continues where it left off, "
                                   "so it brings back its own tabs")
-            elif urls:
+            elif urls and browsers.is_browser(saved["app"], entry.id):
                 command = browsers.new_window(exec_args(entry.exec), profile, urls)
                 if command:
                     step.command, step.tabs = command, urls

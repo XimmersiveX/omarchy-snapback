@@ -9,12 +9,10 @@ long before anyone opens the panel.
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from . import session
+from . import files, session
 from .apps import DesktopEntry
 
 # The sessions Snapback keeps itself, listed first, in this order.
@@ -22,28 +20,8 @@ OWN_SESSIONS = (session.DEFAULT_NAME, session.UNDO_NAME, "previous")
 OUTCOMES = ("placed", "in-place", "failed", "skipped", "unrestorable")
 
 
-def state_dir() -> Path:
-    return session.sessions_dir().parent
-
-
 def report_path() -> Path:
-    return state_dir() / "last-restore.json"
-
-
-def write_json(data: dict, path: Path) -> None:
-    """Atomically, readable only by the user."""
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as file:
-            file.write(json.dumps(data, indent=2) + "\n")
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except FileNotFoundError:
-            pass
-        raise
+    return files.state_dir() / "last-restore.json"
 
 
 def restore_record(name: str, trigger: str, report: dict | None = None,
@@ -76,7 +54,7 @@ def restore_record(name: str, trigger: str, report: dict | None = None,
 
 def record_restore(record: dict, path: Path | None = None) -> None:
     try:
-        write_json(record, path or report_path())
+        files.write_json(record, path or report_path())
     except OSError:
         pass  # the restore itself happened; a missing report is no reason to fail it
 

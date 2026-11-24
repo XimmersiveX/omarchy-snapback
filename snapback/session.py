@@ -9,14 +9,13 @@ restore lands them on the right screen whatever numbers Omarchy hands out.
 from __future__ import annotations
 
 import json
-import os
 import re
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from . import files
 from .apps import ProcInfo, Resolver
 from .capture import CapturedWindow, Source, capture
 from .screens import pick_main
@@ -32,8 +31,7 @@ class SessionError(RuntimeError):
 
 
 def sessions_dir() -> Path:
-    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local/state")
-    return Path(base) / "snapback" / "sessions"
+    return files.state_dir() / "sessions"
 
 
 def session_path(name: str, directory: Path | None = None) -> Path:
@@ -153,21 +151,7 @@ def write(session: dict, path: Path, force: bool = False) -> None:
                 f"nothing to reopen in this session, so {path} (which has "
                 f"{restorable(previous)}) was kept; use --force to replace it")
 
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    data = json.dumps(session, indent=2) + "\n"
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as file:  # mkstemp creates it 0600
-            file.write(data)
-            file.flush()
-            os.fsync(file.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except FileNotFoundError:
-            pass
-        raise
+    files.write_json(session, path)
 
 
 def read(path: Path) -> dict:

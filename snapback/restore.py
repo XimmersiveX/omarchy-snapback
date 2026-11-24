@@ -63,7 +63,6 @@ they are and reported.
 
 from __future__ import annotations
 
-import fcntl
 import itertools
 import math
 import os
@@ -73,8 +72,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from . import hypr
-from . import layout
+from . import files, hypr, layout
 from .geometry import Rect, contains, logical_size
 from .plan import Plan, WindowStep
 
@@ -207,30 +205,14 @@ class Report:
 
 
 def lock_path() -> Path:
-    base = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
-    return Path(base) / "snapback-restore.lock"
+    return files.runtime_dir() / "snapback-restore.lock"
 
 
-class Lock:
+class Lock(files.Lock):
     """Only one restore at a time: two would launch every app twice."""
 
     def __init__(self, path: Path | None = None):
-        self.path = path or lock_path()
-        self.file = None
-
-    def __enter__(self) -> "Lock":
-        self.file = open(self.path, "w")
-        try:
-            fcntl.flock(self.file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            self.file.close()
-            raise RestoreError("another restore is already running") from exc
-        return self
-
-    def __exit__(self, *exc) -> None:
-        if self.file:
-            fcntl.flock(self.file, fcntl.LOCK_UN)
-            self.file.close()
+        super().__init__(path or lock_path(), RestoreError("another restore is already running"))
 
 
 def run(plan: Plan, desk: Desk, timeout: float = 30.0, poll: float = 0.25,

@@ -20,10 +20,11 @@ Snapback's own fixtures always use the old names.
 
 from __future__ import annotations
 
-import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from . import files
 
 SLOTS = 10
 BLOCKS_FILE = "monitor-workspaces"
@@ -35,8 +36,7 @@ LAYOUTS = (
 
 
 def state_dir() -> Path:
-    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local/state")
-    return Path(base) / "omarchy"
+    return files.state_home() / "omarchy"
 
 
 def state_files(directory: Path | None = None) -> tuple[Path, Path]:

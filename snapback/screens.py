@@ -27,11 +27,10 @@ it's a setup, not Omarchy, that puts the windows home again.
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import files
 from .geometry import Monitor, Rect
 from .omarchy import SLOTS
 
@@ -40,8 +39,7 @@ FOLD_SNAPBACK = "snapback"
 
 
 def marks_path() -> Path:
-    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local/state")
-    return Path(base) / "snapback" / "screens.json"
+    return files.state_dir() / "screens.json"
 
 
 def _load(path: Path | None) -> dict:
@@ -77,19 +75,7 @@ def set_fold(fold: str, path: Path | None = None) -> None:
 
 def _save(changes: dict, path: Path | None) -> None:
     path = path or marks_path()
-    data = {**_load(path), **changes}
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".screens.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as file:
-            file.write(json.dumps(data, indent=2, sort_keys=True) + "\n")
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except FileNotFoundError:
-            pass
-        raise
+    files.write_json({**_load(path), **changes}, path, sort_keys=True)
 
 
 def pick_main(screens: list[tuple[str, Rect]], marks: set[str]) -> str | None:

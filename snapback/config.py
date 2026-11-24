@@ -12,10 +12,11 @@
 
 from __future__ import annotations
 
-import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from . import files
 
 DEFAULT_NEVER_RESTORE = ["zoom"]
 
@@ -32,8 +33,7 @@ class Config:
 
 
 def config_path() -> Path:
-    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base) / "snapback" / "config.toml"
+    return files.config_home() / "snapback" / "config.toml"
 
 
 def load(path: Path | None = None) -> Config:

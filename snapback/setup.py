@@ -9,18 +9,18 @@ their own scopes through uwsm-app, so stopping the unit never closes them.
 
 from __future__ import annotations
 
-import os
 import shlex
 import subprocess
 from pathlib import Path
+
+from . import files
 
 UNIT = "snapback"
 MARKER = "# Added by `snapback setup`"
 
 
 def hook_path() -> Path:
-    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base) / "omarchy" / "hooks" / "post-boot.d" / "snapback"
+    return files.config_home() / "omarchy" / "hooks" / "post-boot.d" / "snapback"
 
 
 def package_root() -> Path:

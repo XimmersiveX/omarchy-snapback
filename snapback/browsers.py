@@ -35,6 +35,8 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlsplit
 
+from . import files
+
 
 @dataclass(frozen=True)
 class Browser:
@@ -66,10 +68,6 @@ class SessionWindow:
     profile: str
     urls: list[str]          # every tab's current URL, in tab order
     title: str = ""          # the selected tab's title, "" when not written yet
-
-
-def config_home() -> Path:
-    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 
 
 def usable(url: str) -> bool:
@@ -190,7 +188,7 @@ def _string16(body: bytes, at: int) -> tuple[str, int]:
 
 
 def profiles(browser: Browser, home: Path | None = None) -> list[str]:
-    root = (home or config_home()) / browser.folder
+    root = (home or files.config_home()) / browser.folder
     try:
         return sorted(p.name for p in root.iterdir() if PROFILE_RE.match(p.name) and (p / "Sessions").is_dir())
     except OSError:
@@ -199,7 +197,7 @@ def profiles(browser: Browser, home: Path | None = None) -> list[str]:
 
 def read_windows(browser: Browser, home: Path | None = None) -> list[SessionWindow]:
     """The open windows of every profile, from each one's newest session file."""
-    root = (home or config_home()) / browser.folder
+    root = (home or files.config_home()) / browser.folder
     windows = []
     for profile in profiles(browser, home):
         try:
@@ -258,7 +256,7 @@ def running(browser: Browser, home: Path | None = None) -> bool:
     """Whether the browser is running for this user: its SingletonLock names
     a live process on this machine."""
     try:
-        target = os.readlink((home or config_home()) / browser.folder / "SingletonLock")
+        target = os.readlink((home or files.config_home()) / browser.folder / "SingletonLock")
         host, _, pid = target.rpartition("-")
         return host == os.uname().nodename and Path(f"/proc/{int(pid)}").exists()
     except (OSError, ValueError):
@@ -268,7 +266,7 @@ def running(browser: Browser, home: Path | None = None) -> bool:
 def restores_itself(browser: Browser, profile: str, home: Path | None = None) -> bool:
     """Whether the profile is set to continue where it left off."""
     try:
-        prefs = json.loads(((home or config_home()) / browser.folder / profile / "Preferences").read_text())
+        prefs = json.loads(((home or files.config_home()) / browser.folder / profile / "Preferences").read_text())
         return (prefs.get("session") or {}).get("restore_on_startup") == 1
     except (OSError, ValueError, AttributeError):
         return False

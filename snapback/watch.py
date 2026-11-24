@@ -21,7 +21,6 @@ rewrites the file when something in it changed.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import select
@@ -33,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import restore, session
+from . import files, restore, session
 
 # High-frequency events that say nothing about what is open or where.
 IGNORED = {"activewindow", "activewindowv2", "focusedmon", "focusedmonv2", "workspace",
@@ -149,17 +148,7 @@ def shutdown_in_progress(proc: Path = Path("/proc")) -> str | None:
 
 def restore_running(path: Path | None = None) -> bool:
     """True while a restore holds its lock."""
-    path = path or restore.lock_path()
-    try:
-        with open(path, "a") as file:
-            try:
-                fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                return True
-            fcntl.flock(file, fcntl.LOCK_UN)
-    except OSError:
-        return False
-    return False
+    return files.held(path or restore.lock_path())
 
 
 def comparable(saved: dict) -> str:
@@ -191,32 +180,18 @@ def events_from(sock: socket.socket) -> Callable[[float], object]:
 
 
 def event_socket() -> socket.socket:
-    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    runtime = files.runtime_dir()
     signature = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
     if not signature:
         raise session.SessionError("HYPRLAND_INSTANCE_SIGNATURE isn't set; is Hyprland running?")
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect(str(Path(runtime) / "hypr" / signature / ".socket2.sock"))
+    sock.connect(str(runtime / "hypr" / signature / ".socket2.sock"))
     return sock
 
 
-class WatchLock:
+class WatchLock(files.Lock):
     """One watcher at a time."""
 
     def __init__(self, path: Path | None = None):
-        runtime = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
-        self.path = path or Path(runtime) / "snapback-watch.lock"
-        self.file = None
-
-    def __enter__(self) -> "WatchLock":
-        self.file = open(self.path, "w")
-        try:
-            fcntl.flock(self.file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            self.file.close()
-            raise session.SessionError("Snapback is already watching this session") from exc
-        return self
-
-    def __exit__(self, *exc) -> None:
-        if self.file:
-            self.file.close()
+        super().__init__(path or files.runtime_dir() / "snapback-watch.lock",
+                         session.SessionError("Snapback is already watching this session"))

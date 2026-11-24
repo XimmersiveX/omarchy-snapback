@@ -14,3 +14,11 @@ class Model(unittest.TestCase):
         result = subprocess.run(["node", str(HERE / "js" / "model.test.js")],
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class Version(unittest.TestCase):
+    def test_package_and_manifest_agree(self):
+        import json
+        from snapback import __version__
+        manifest = json.loads((HERE.parent / "manifest.json").read_text())
+        self.assertEqual(__version__, manifest["version"])

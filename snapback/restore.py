@@ -40,8 +40,10 @@ Order matters:
        to split and preselecting the side, then resized to their saved sizes
        (see layout.py). That needs the workspace on screen, so each monitor
        gets its view back afterwards. A workspace holding tiled windows the
-       session doesn't know, or a shape no tree of splits makes, only has its
-       windows swapped into the tiles nearest their saved spots.
+       session doesn't know, a shape no tree of splits makes, or a layout other
+       than dwindle (master, scrolling: a workspace rule can set one per
+       workspace) only has its windows swapped into the tiles nearest their
+       saved spots.
     6. Show on each screen the workspace it showed when the session was saved.
     7. Put windows saved full screen or full width back that way. Last, as a
        full screen window would stand in the way of laying out the tiles under
@@ -182,6 +184,7 @@ class Report:
     extra: list[str] = field(default_factory=list)   # "class (address)" of unasked-for windows
     reordered: list[str] = field(default_factory=list)  # workspaces whose tiles were swapped
     rebuilt: list[str] = field(default_factory=list)    # workspaces whose layout was rebuilt
+    other_layout: dict[str, str] = field(default_factory=dict)  # ws -> non-dwindle layout: swapped, not rebuilt
     errors: list[str] = field(default_factory=list)  # problems outside any one window
     closed: list[str] = field(default_factory=list)  # names of windows closed (switching)
     kept: list[str] = field(default_factory=list)    # asked to close, still open
@@ -198,6 +201,7 @@ class Report:
             "extra": self.extra,
             "reordered": self.reordered,
             "rebuilt": self.rebuilt,
+            "otherLayout": self.other_layout,
             "errors": self.errors,
             "closed": self.closed,
             "kept": self.kept,
@@ -428,6 +432,10 @@ def _arrange_tiles(desk: Desk, report: Report, settle: float, log) -> None:
     by_name = {m["name"]: m["id"] for m in monitors}
     views = {m["name"]: m["activeWorkspace"]["name"] for m in monitors}
     clients = {c["address"]: c for c in desk.clients()}
+    # Each workspace's own layout: a workspace rule can give one a layout
+    # other than general:layout. Only dwindle keeps every tile inside its
+    # monitor, so only there is a tile outside it measured on another one.
+    layouts = {w["name"]: w.get("tiledLayout") for w in desk.workspaces()}
 
     for workspace, results in groups.items():
         now = {}
@@ -436,7 +444,7 @@ def _arrange_tiles(desk: Desk, report: Report, settle: float, log) -> None:
             box = boxes.get(c["monitor"]) if c else None
             if not c or not box or c.get("floating") or c["workspace"]["name"] != workspace:
                 break
-            now[r.address] = _tile_box(c, box, boxes.values())
+            now[r.address] = _tile_box(c, box, boxes.values() if layouts.get(workspace) == "dwindle" else [])
         else:
             saved = {r.address: r.step.tile_box for r in results}
             # The right tiles, perhaps holding the wrong windows: swapping is
@@ -451,7 +459,13 @@ def _arrange_tiles(desk: Desk, report: Report, settle: float, log) -> None:
             monitor = results[0].step.monitor
             foreign = any(not c.get("floating") and c["workspace"]["name"] == workspace and a not in saved
                           for a, c in clients.items())
-            if (tree is not None and not foreign and monitor in by_name and workspace.isdecimal()
+            tiled = layouts.get(workspace)
+            if tiled != "dwindle":
+                # Rebuilding drives dwindle's splits; master, scrolling and
+                # the rest get their windows swapped into the nearest tiles.
+                report.other_layout[workspace] = tiled or "unknown"
+                log(f"ws {workspace} uses the {tiled or 'unknown'} layout; swapping tiles, not rebuilding")
+            elif (tree is not None and not foreign and monitor in by_name and workspace.isdecimal()
                     and not any(r.step.waiting for r in results)):
                 try:
                     box = boxes[by_name[monitor]]
@@ -532,7 +546,9 @@ def _tile_box(client: dict, box: Rect, boxes) -> tuple[float, float, float, floa
     """A tiled window's box as fractions of the monitor it was laid out on.
 
     A hidden workspace moved from another monitor keeps tile positions laid
-    out there until it is shown, so those are measured on that monitor.
+    out there until it is shown, so those are measured on that monitor, one
+    of `boxes` (empty where tiles can lie outside their monitor, as
+    scrolling's columns do).
     """
     x, y = client["at"]
     w, h = client["size"]

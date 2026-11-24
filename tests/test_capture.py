@@ -22,6 +22,26 @@ class StalePositions(unittest.TestCase):
         self.assertEqual((window.placement.dx, window.placement.dy), (12, 38))
         self.assertEqual(window.placement.monitor_w, 2560)
 
+    def test_a_scrolling_column_beside_its_monitor_is_measured_on_its_own_monitor(self):
+        # Scrolling lays columns out past the monitor's edge; one whose middle
+        # is over the next monitor must not be measured there, or the saved
+        # column order is lost.
+        import copy
+        source = Source.from_dir(Path(__file__).parent / "fixtures" / "tv-on-scene")
+        source = Source(copy.deepcopy(source.snapshot), source.workspaces)
+        main = next(m for m in source.snapshot["monitors"] if m["name"] == "DP-3")
+        t1 = next(c for c in source.snapshot["clients"] if c["initialClass"] == "snapback-test-t1")
+        t1["monitor"] = main["id"]
+        t1["at"] = [main["x"] + 2000, main["y"] + 38]  # its middle is past the right edge
+        ws = next(w for w in source.snapshot["workspaces"] if w["id"] == t1["workspace"]["id"])
+        for layout, dx in (("dwindle", None), ("scrolling", 2000)):
+            ws["tiledLayout"] = layout
+            window = next(w for w in capture(source) if w.app == "snapback-test-t1")
+            if dx is None:
+                self.assertNotEqual(window.placement.monitor_w, 2560)  # the old guess: another monitor
+            else:
+                self.assertEqual((window.placement.dx, window.placement.monitor_w), (2000, 2560))
+
 
 class DeskWithTvOn(unittest.TestCase):
     """Recorded from the real desk: TV on, two windows on the TV, one on the portrait ROG."""

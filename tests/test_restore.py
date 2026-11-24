@@ -48,6 +48,7 @@ class FakeDesk:
         self.rules = {}                 # app class -> workspace its new windows open on
         self.rule_calls = []            # (rules, failsafe) for each set_open_rules
         self.opened_on = {}             # address -> workspace a launched window first appeared on
+        self.tiled_layout = {}          # workspace name -> layout other than dwindle (None: not reported)
         if self.focused:
             self.last_focused[self._by("address:" + self.focused)["workspace"]["name"]] = self.focused
 
@@ -73,7 +74,12 @@ class FakeDesk:
         return copy.deepcopy(self._clients)
 
     def workspaces(self):
-        return copy.deepcopy(self._workspaces)
+        out = copy.deepcopy(self._workspaces)
+        for w in out:
+            w["tiledLayout"] = self.tiled_layout.get(w["name"], "dwindle")
+            if w["tiledLayout"] is None:
+                del w["tiledLayout"]
+        return out
 
     def monitors(self):
         return copy.deepcopy(self._monitors)

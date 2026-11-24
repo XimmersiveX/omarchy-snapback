@@ -66,6 +66,10 @@ def capture(source: Source) -> list[CapturedWindow]:
     monitors = source.monitors()
     by_id = {m["id"]: m["name"] for m in source.snapshot["monitors"]}
     by_name = {m.name: m for m in monitors}
+    # Only dwindle lays every tile out inside its monitor: scrolling puts
+    # columns beside it, which must not be measured on the monitor next door.
+    not_dwindle = {w["id"] for w in source.snapshot.get("workspaces", [])
+               if w.get("tiledLayout", "dwindle") != "dwindle"}
     windows = []
     for client in source.snapshot["clients"]:
         if not client.get("mapped") or client.get("hidden"):
@@ -79,7 +83,7 @@ def capture(source: Source) -> list[CapturedWindow]:
             owner, name = None, ws["name"]
         rect = Rect(*client["at"], *client["size"])
         frame = monitor
-        if monitor and not client.get("floating"):
+        if monitor and not client.get("floating") and ws["id"] not in not_dwindle:
             frame = layout_frame(rect, monitor, monitors)
         windows.append(CapturedWindow(
             address=client["address"],

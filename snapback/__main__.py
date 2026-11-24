@@ -188,6 +188,9 @@ def show_report(report: restore.Report, off: list[plan.WindowStep]) -> None:
         print(f"  ok    layout of ws {workspace} rebuilt as saved")
     for workspace in report.reordered:
         print(f"  ok    tiles on ws {workspace} put back in their saved order")
+    for workspace, tiled in report.other_layout.items():
+        print(f"  note  ws {workspace} uses the {tiled} layout: its windows went to the nearest tiles, "
+              f"but only dwindle layouts are rebuilt as saved")
     for extra in report.extra:
         print(f"  note  an extra window opened and was left alone: {extra}")
     for error in report.errors:

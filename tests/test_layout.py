@@ -122,6 +122,31 @@ class Rebuild(unittest.TestCase):
         report = restore.run(p, FakeDesk(source, OPENS), timeout=20)
         self.assertEqual(report.rebuilt, [])
 
+    def test_other_layouts_get_swaps_not_a_rebuild(self):
+        # Rebuilding drives dwindle's splits; under master or scrolling it
+        # would fail or scramble, so the windows are only swapped.
+        for tiled, shown in (("master", "master"), ("scrolling", "scrolling"), (None, "unknown")):
+            with self.subTest(layout=tiled):
+                source = empty(desk("tv-on-scene"))
+                fake = FakeDesk(source, OPENS)
+                fake.tiled_layout["23"] = tiled
+                report, fake = self.run_restore(fake)
+                self.assertEqual(report.count("placed"), 4)
+                self.assertEqual(report.rebuilt, [])
+                self.assertEqual(report.other_layout, {"23": shown})
+                self.assertEqual(report.errors, [])
+                self.assertFalse([c for c in fake.calls if c[0] == "layout"])
+                self.assertFalse(any(c["workspace"]["name"] == restore.STAGING for c in fake.clients()))
+                self.assertEqual(report.to_dict()["otherLayout"], {"23": shown})
+
+    def test_a_layout_rule_on_another_workspace_does_not_stop_the_rebuild(self):
+        source = empty(desk("tv-on-scene"))
+        fake = FakeDesk(source, OPENS)
+        fake.tiled_layout["5"] = "master"
+        report, _ = self.run_restore(fake)
+        self.assertEqual(report.rebuilt, ["23"])
+        self.assertEqual(report.other_layout, {})
+
     def test_preselects_follow_the_tree(self):
         _, fake = self.run_restore()
         self.assertEqual([args["message"] for m, args in fake.calls if m == "layout"],

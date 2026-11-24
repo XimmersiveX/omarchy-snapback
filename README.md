@@ -17,7 +17,9 @@ It also keeps your desk saved as you work, and can put it back after a reboot.
 - **Every window on its screen and workspace.** Screens are remembered by make, model and serial,
   not by port names like `DP-1` that change when you replug.
 - **Tiled layouts, rebuilt.** Apps reopen in any order; Snapback puts the splits back so each
-  workspace has the shape you saved.
+  workspace has the shape you saved. That's for dwindle, Omarchy's tiling layout; on a scrolling
+  or master workspace windows go back in their saved order, but column widths and splits stay as
+  the layout makes them.
 - **Floating windows** at their size and spot, and **full screen** or **full width** windows that way.
 - **Browser tabs, per window.** For Chromium, Google Chrome and Brave, each window comes back with
   its own tabs: your dashboard window with the dashboard, not a blank New Tab.

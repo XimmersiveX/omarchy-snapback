@@ -55,6 +55,12 @@ A setup works on whatever screens you have plugged in.
 - **Main screen:** with more than one screen, the panel shows which one Snapback takes as main.
   Click it to choose another. Snapback remembers your choice.
 
+Snapback was built on a three-screen desk. The laptop and docking cases were tested there by
+switching screens off and faking a different set of screens, not on a real laptop. If a window
+lands somewhere it shouldn't when your screens change,
+[open an issue](https://github.com/XimmersiveX/omarchy-snapback/issues) and say which screens you
+had when you saved and when you switched.
+
 ## Restore at login
 
 Turn on **Restore my windows at login** in the panel. Snapback then keeps your desk saved as

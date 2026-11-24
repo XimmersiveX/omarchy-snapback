@@ -5,13 +5,11 @@
 
 var GLYPH = {
   bar: String.fromCodePoint(0xF05B2),       // window-restore
-  last: String.fromCodePoint(0xF0193),      // content-save
-  previous: String.fromCodePoint(0xF02DA),  // history
   undo: String.fromCodePoint(0xF054D),      // undo-variant
   named: String.fromCodePoint(0xF056E),     // view-dashboard
   remove: String.fromCodePoint(0xF01B4),    // delete
   addOnly: String.fromCodePoint(0xF0E4D),   // layers-plus: put back, close nothing
-  save: String.fromCodePoint(0xF0193),
+  save: String.fromCodePoint(0xF0193),      // content-save
   screen: String.fromCodePoint(0xF0379)     // monitor
 }
 
@@ -105,9 +103,9 @@ function nextMain(screens) {
 
 function isOwn(name) { return OWN.indexOf(name) >= 0 }
 
+// The panel lists the user's setups and before-switch; the autosaves aren't listed.
 function glyphFor(name) {
-  return name === "last" ? GLYPH.last : name === "previous" ? GLYPH.previous
-    : name === "before-switch" ? GLYPH.undo : GLYPH.named
+  return name === "before-switch" ? GLYPH.undo : GLYPH.named
 }
 
 function sessionTitle(name, t) {

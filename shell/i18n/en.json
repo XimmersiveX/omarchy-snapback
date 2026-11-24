@@ -19,7 +19,6 @@
   "session.deleteHint": "Delete this setup",
   "apps.more": "%1 +%2",
   "save.placeholder": "Save open windows as a setup…",
-  "save.hint": "Enter saves",
   "save.badName": "Use letters, digits, '.', '_' or '-' (not \"last\", \"previous\" or \"before-switch\")",
   "saved": "Saved \"%1\"",
   "replaced": "Replaced \"%1\"",

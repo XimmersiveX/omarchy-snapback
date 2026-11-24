@@ -81,7 +81,7 @@ test("session titles", () => {
   assert.strictEqual(M.sessionTitle("before-switch", t), "Before switch")
   assert.strictEqual(M.sessionTitle("work", t), "work")
   assert.ok(M.isOwn("last") && M.isOwn("previous") && M.isOwn("before-switch") && !M.isOwn("work"))
-  assert.notStrictEqual(M.glyphFor("before-switch"), M.glyphFor("previous"))
+  assert.notStrictEqual(M.glyphFor("before-switch"), M.glyphFor("work"))
 })
 
 test("apps line", () => {

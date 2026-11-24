@@ -142,3 +142,10 @@ class Modes(unittest.TestCase):
         for workspace, mode in (("special:x", "floating"), ("4", "master"), ("../4", "dwindle")):
             with self.assertRaises(ValueError):
                 modes.remember(workspace, mode, "dwindle")
+
+    def test_now_knows_every_workspace_that_exists_or_has_a_mode(self):
+        self.write("7.lua", 'o.workspace_mode({ workspace = "7", mode = "floating" })\n')
+        now = WorkspaceModes.load(self.dir).now({"1": "dwindle", "2": "scrolling", "special:x": "dwindle"},
+                                                "dwindle")
+        self.assertEqual(now.known, {"1": "dwindle", "2": "scrolling", "7": "floating"})
+        self.assertEqual((now.mode("9"), now.default), ("dwindle", "dwindle"))

@@ -6,6 +6,7 @@ import unittest
 from snapback import hypr, layout, plan, restore
 from snapback.apps import DesktopEntry
 from snapback.layout import Split
+from snapback.omarchy import ModeMap
 from tests.test_plan import MAIN, desk, empty, saved_scene
 from tests.test_restore import FakeDesk
 
@@ -222,12 +223,13 @@ if __name__ == "__main__":
 class WorkspaceModes(unittest.TestCase):
     """A setup puts each workspace back in the Omarchy mode it was saved in."""
 
-    def plan(self, saved_modes, now="dwindle", mode_now=True):
-        session = tv_layout_session()
+    def plan(self, saved_modes, now="dwindle", mode_now=True, switching=False, session=None, known=None):
+        session = session or tv_layout_session()
         for w, mode in zip(session["windows"], saved_modes):
             w["workspace_mode"] = mode
         source = empty(desk("tv-on-scene"))
-        return plan.build(session, source, entries(), mode_now=(lambda ws: now) if mode_now else None), source
+        modes = ModeMap(known if known is not None else {"23": now}, "dwindle") if mode_now else None
+        return plan.build(session, source, entries(), modes=modes, switching=switching), source
 
     def test_a_workspace_saved_tiling_is_tiled_again(self):
         p, _ = self.plan(["dwindle"] * 4, now="floating")
@@ -239,6 +241,24 @@ class WorkspaceModes(unittest.TestCase):
         self.assertEqual(self.plan(["dwindle"] * 4, now="floating", mode_now=False)[0].modes, {})
         self.assertEqual(self.plan(["dwindle", "scrolling", "dwindle", "dwindle"],
                                    now="floating")[0].modes, {})                         # two setups' worth
+
+    def test_a_switch_puts_back_empty_workspaces_too(self):
+        # A clean setup: no windows, every workspace as it was saved.
+        session = tv_layout_session()
+        session["windows"] = []
+        session["workspace_modes"] = [{"monitor": MAIN, "slot": 3, "mode": "dwindle"},
+                                      {"monitor": MAIN, "slot": 4, "mode": "scrolling"}]
+        known = {"23": "floating", "24": "dwindle", "5": "floating", "21": "dwindle"}
+        p, _ = self.plan([], switching=True, session=session, known=known)
+        # ws 5 wasn't in the setup: back to the default, as a new workspace starts.
+        self.assertEqual(p.modes, {"5": "dwindle", "23": "dwindle", "24": "scrolling"})
+        plain, _ = self.plan([], session=session, known=known)
+        self.assertEqual(plain.modes, {})  # a plain restore only sets its windows' workspaces
+
+    def test_a_switch_to_a_setup_saved_before_modes_changes_none(self):
+        session = tv_layout_session()
+        p, _ = self.plan([None] * 4, switching=True, session=session, known={"5": "floating", "23": "floating"})
+        self.assertEqual(p.modes, {})
 
     def test_the_mode_is_set_before_any_window_lands(self):
         p, source = self.plan(["scrolling"] * 4)

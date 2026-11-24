@@ -8,6 +8,7 @@ from pathlib import Path
 from snapback import config
 from snapback.apps import DesktopEntry, ProcInfo, Resolver
 from snapback.capture import Source
+from snapback.omarchy import ModeMap
 from snapback.session import SCHEMA, SessionError, build, read, restorable, session_path, write
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -57,12 +58,21 @@ class Build(unittest.TestCase):
     def test_each_window_keeps_its_workspace_mode(self):
         source = Source.from_dir(FIXTURES / "tv-on-scene")
         saved = build(source, Resolver(ENTRIES), lambda pid: ProcInfo(), {}, NOW,
-                      modes=lambda ws: "floating" if ws == "1" else "dwindle")
+                      modes=ModeMap({"1": "floating", "12": "dwindle"}, "dwindle"))
         windows = {w["app"]: w for w in saved["windows"]}
         self.assertEqual(windows["chromium"]["workspace_mode"], "floating")
         self.assertEqual(windows["snapback-test-f2"]["workspace_mode"], "dwindle")
         self.assertIsNone(windows["snapback-test-s1"]["workspace_mode"])  # special: no mode
         self.assertIsNone(self.windows["chromium"]["workspace_mode"])     # Omarchy without modes
+        self.assertNotIn("workspace_modes", self.session)
+
+    def test_every_workspace_mode_is_saved_by_screen_and_slot(self):
+        # Empty ones too: a setup with nothing open still holds them.
+        source = Source.from_dir(FIXTURES / "tv-on-scene")
+        saved = build(source, Resolver(ENTRIES), lambda pid: ProcInfo(), {}, NOW,
+                      modes=ModeMap({"1": "floating", "4": "scrolling", "999": "floating"}, "dwindle"))
+        self.assertEqual(saved["workspace_modes"], [{"monitor": TV, "slot": 1, "mode": "floating"},
+                                                    {"monitor": TV, "slot": 4, "mode": "scrolling"}])
 
     def test_special_workspace_is_kept(self):
         s1 = self.windows["snapback-test-s1"]

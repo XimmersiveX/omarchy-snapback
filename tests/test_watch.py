@@ -345,6 +345,7 @@ class Switch(unittest.TestCase):
         with mock.patch.dict("os.environ", {"XDG_STATE_HOME": tmp.name, "XDG_RUNTIME_DIR": tmp.name}), \
                 mock.patch.object(cli.Source, "live", lambda: cli.Source.from_dir(fixture)), \
                 mock.patch.object(cli.browsers, "open_tabs", lambda clients: {}), \
+                mock.patch.object(cli, "live_modes", lambda source: None), \
                 mock.patch("sys.stderr"), restore.Lock():
             self.assertEqual(cli.main(["restore", "work", "--close-others"]), 1)
         self.assertEqual((sessions / "before-switch.json").read_text(), "the real undo")

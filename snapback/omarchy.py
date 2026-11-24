@@ -181,6 +181,13 @@ class WorkspaceModes:
         found = self.own.get(workspace) or self.default or tiled
         return found if found in MODES else "dwindle"
 
+    def now(self, tiled: dict[str, str | None], general_layout: str | None) -> "ModeMap":
+        """Every workspace's mode now. `tiled` is Hyprland's tiledLayout for
+        each workspace that exists."""
+        known = {ws: self.mode(ws, tiled.get(ws) or general_layout)
+                 for ws in set(tiled) | set(self.own) if ws.isdecimal() and int(ws) > 0}
+        return ModeMap(known, self.mode("", general_layout))
+
     def remember(self, workspace: str, mode: str, general_layout: str | None) -> None:
         """Keep `mode` for `workspace` across logins, as Super + L does: a
         file of its own, or none when it is the default."""
@@ -195,3 +202,14 @@ class WorkspaceModes:
             files.write_text(f'o.workspace_mode({{ workspace = "{workspace}", mode = "{mode}" }})\n',
                              path, mode=0o644)
             self.own[workspace] = mode
+
+
+@dataclass
+class ModeMap:
+    """Workspace modes at one moment."""
+
+    known: dict[str, str]  # workspace -> mode, for each that exists or has a mode of its own
+    default: str           # the mode of every other workspace
+
+    def mode(self, workspace: str) -> str:
+        return self.known.get(workspace, self.default)

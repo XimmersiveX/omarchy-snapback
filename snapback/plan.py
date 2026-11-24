@@ -62,7 +62,7 @@ from . import browsers
 from .apps import TUI_ID, DesktopEntry, exec_args
 from .capture import CapturedWindow, Source, capture
 from .geometry import Monitor, Placement, Rect, project
-from .omarchy import MODES, SLOTS, slot_of
+from .omarchy import MODES, SLOTS, ModeMap, slot_of
 from .screens import FOLD_OMARCHY, Mapping, map_screens
 
 GEOMETRY_TOLERANCE = 2.0
@@ -192,7 +192,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
           name: str = "", marks: set[str] | frozenset = frozenset(),
           fold: str = FOLD_OMARCHY, tabs: dict[str, dict] | None = None,
           cold: Callable[[str, str], bool] = lambda app, profile: False,
-          mode_now: Callable[[str], str] | None = None, switching: bool = False) -> Plan:
+          modes: ModeMap | None = None, switching: bool = False) -> Plan:
     """The plan for restoring `session` onto the desktop in `source`.
 
     `entries` are the apps installed now, `never` is the never-restore check
@@ -353,22 +353,39 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
     return Plan(name, session.get("saved_at"), sorted(workspace_steps.values(), key=lambda w: w.workspace),
                 steps, missing, len(open_windows) - len(taken), others, pinned,
                 _views(session, state, by_identity, mapping), _screens(session, mapping, by_identity),
-                mapping.elsewhere, mapping.elsewhere and not follow, _modes(steps, mode_now), warm)
+                mapping.elsewhere, mapping.elsewhere and not follow, _modes(session, steps, modes, state, by_identity, switching), warm)
 
 
-def _modes(steps: list[WindowStep], mode_now: Callable[[str], str] | None) -> dict[str, str]:
-    """Workspace -> the Omarchy mode to put it in: the one its windows were
-    saved in, where that isn't its mode now. Setups saved before modes were,
-    and workspaces two saved ones now share with different modes, are left be."""
-    if mode_now is None:
+def _modes(session: dict, steps: list[WindowStep], modes: ModeMap | None, state,
+           by_identity: dict[str, Monitor], switching: bool) -> dict[str, str]:
+    """Workspace -> the Omarchy mode to put it in, where that isn't its mode now.
+
+    A switch puts every workspace back the way the setup saved it, empty ones
+    too, and one the setup didn't have the way a new workspace starts. A plain
+    restore only sets the workspaces its windows go to. Setups saved before
+    modes were are left be, and so is a workspace two saved ones now share
+    with different modes.
+    """
+    if modes is None:
         return {}
-    wanted: dict[str, set[str]] = {}
+    want: dict[str, str] = {}
+    saved = session.get("workspace_modes")
+    if switching and isinstance(saved, list):
+        want = {ws: modes.default for ws in modes.known}
+        for entry in saved:
+            if (isinstance(entry, dict) and entry.get("mode") in MODES and entry.get("monitor") in by_identity
+                    and isinstance(entry.get("slot"), int)):
+                number = state.workspace_for(entry["monitor"], entry["slot"])
+                if number is not None:
+                    want[str(number)] = entry["mode"]
+    from_windows: dict[str, set[str | None]] = {}
     for step in steps:
         if step.action in ("launch", "move", "in-place") and step.workspace and step.workspace.isdecimal():
-            wanted.setdefault(step.workspace, set()).add(step.workspace_mode)
-    return {ws: mode for ws, modes in sorted(wanted.items(), key=lambda kv: int(kv[0]))
-            if len(modes) == 1 and (mode := next(iter(modes))) and mode != mode_now(ws)}
-
+            from_windows.setdefault(step.workspace, set()).add(step.workspace_mode)
+    for ws, found in from_windows.items():
+        if len(found) == 1 and (mode := next(iter(found))):
+            want[ws] = mode
+    return {ws: mode for ws, mode in sorted(want.items(), key=lambda kv: int(kv[0])) if mode != modes.mode(ws)}
 
 def app_name(app: str, entries: dict[str, DesktopEntry]) -> str:
     """An app's name from its desktop entry, for people; its class otherwise."""

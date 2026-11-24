@@ -64,10 +64,10 @@ def save_live(source: Source, resolver: apps.Resolver,
               tabs: Callable[[list[dict]], dict] = browsers.open_tabs) -> dict:
     """The session for the live desk in `source`."""
     return session.build(source, resolver, apps.read_proc, versions_of(source),
-                         marks=screens.load_marks(), tabs=tabs, modes=live_modes(source) or (lambda ws: None))
+                         marks=screens.load_marks(), tabs=tabs, modes=live_modes(source))
 
 
-def live_modes(source: Source) -> Callable[[str], str] | None:
+def live_modes(source: Source) -> omarchy.ModeMap | None:
     """Each workspace's Omarchy layout mode now, or None where Omarchy has none."""
     modes = omarchy.WorkspaceModes.load()
     if not modes.found:
@@ -77,14 +77,14 @@ def live_modes(source: Source) -> Callable[[str], str] | None:
         general = hypr.option("general:layout")
     except hypr.HyprError:
         general = None
-    return lambda workspace: modes.mode(workspace, tiled.get(workspace) or general)
+    return modes.now(tiled, general if isinstance(general, str) else None)
 
 
 def plan_restore(saved: dict, source: Source, resolver: apps.Resolver, tabs: dict | None,
                  name: str = "", switching: bool = False) -> plan.Plan:
     """The plan for putting `saved` back. `tabs` are the open browser windows'
     tabs, or None when planning against a recording (nothing live to ask)."""
-    live = {} if tabs is None else {"tabs": tabs, "cold": browsers.cold_restore, "mode_now": live_modes(source)}
+    live = {} if tabs is None else {"tabs": tabs, "cold": browsers.cold_restore, "modes": live_modes(source)}
     return plan.build(saved, source, resolver.entries, resolver.is_never, apps.default_terminal(),
                       name=name, marks=screens.load_marks(), fold=screens.load_fold(), switching=switching,
                       **live)

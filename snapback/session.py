@@ -18,6 +18,7 @@ from typing import Callable
 from . import files
 from .apps import ProcInfo, Resolver
 from .capture import CapturedWindow, Source, capture
+from .omarchy import ModeMap
 from .screens import pick_main
 
 SCHEMA = 1
@@ -78,11 +79,11 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
           versions: dict | None = None, now: datetime | None = None,
           marks: set[str] | frozenset = frozenset(),
           tabs: Callable[[list[dict]], dict[str, dict]] = lambda clients: {},
-          modes: Callable[[str], str | None] = lambda workspace: None) -> dict:
+          modes: ModeMap | None = None) -> dict:
     """The session for a snapshot. `procs` looks up a window's process (live
     /proc, or a stand-in in tests); `tabs` reads browser windows' tabs
-    (browsers.open_tabs, or a stand-in); `modes` gives a workspace's Omarchy
-    layout mode, or None."""
+    (browsers.open_tabs, or a stand-in); `modes` are the workspaces' Omarchy
+    layout modes, None where Omarchy has none."""
     saved = []
     browser_tabs = tabs(source.snapshot["clients"])
     for window in capture(source):
@@ -94,7 +95,7 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
             result.skip,
             result.problem,
             window_tabs if window_tabs.get("urls") else None,
-            modes(window.workspace) if window.workspace.isdecimal() else None,
+            modes.mode(window.workspace) if modes and window.workspace.isdecimal() else None,
         ))
     saved.sort(key=lambda s: (s.window.focus < 0, s.window.focus))
 
@@ -114,7 +115,7 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
             "main": m.identity == main,
         })
 
-    return {
+    session = {
         "snapback": SCHEMA,
         "saved_at": (now or datetime.now().astimezone()).isoformat(timespec="seconds"),
         "versions": versions or {},
@@ -122,6 +123,14 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
         "monitors": monitors,
         "windows": [s.to_dict() for s in saved],
     }
+    if modes is not None:
+        # Every workspace's mode, empty ones too, so switching to a setup
+        # with nothing open still puts the workspaces back as they were.
+        session["workspace_modes"] = [
+            {"monitor": owner[0], "slot": owner[1], "mode": mode}
+            for ws, mode in sorted(modes.known.items(), key=lambda kv: int(kv[0]))
+            if (owner := source.workspaces.owner(int(ws)))]
+    return session
 
 
 def view(source: Source, identity: str, workspace_id: int | None) -> dict | None:

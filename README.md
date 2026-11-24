@@ -112,8 +112,9 @@ login. Your setups stay in `~/.local/state/snapback/` until you delete that fold
 - **Terminals come back in their folder, at a fresh prompt.** Programs you started inside a
   terminal, coding agents included, aren't restarted.
 - **A browser that's closed** and set to continue where you left off brings back its own last
-  session when it starts, so its windows come from there rather than from the setup. With the
-  browser already running, a setup's tabs come back exactly.
+  session when it starts. Switching to a setup handles that: Snapback starts the browser out of
+  sight, opens the setup's windows with their tabs, and closes the ones the browser brought back.
+  A plain restore or the one at login lets the browser's own session stand.
 - **Firefox** windows come back without their tabs. Pinned windows are left alone but not re-pinned.
 - **An app Snapback can't place:** if a window's app has no desktop entry Snapback can find, map
   it in `~/.config/snapback/config.toml`:

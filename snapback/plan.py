@@ -136,6 +136,8 @@ class Plan:
     elsewhere: bool = False           # the setup's main screen isn't here: screens matched by role
     park: bool = False                # park windows before moving them (Snapback's own folding)
     modes: dict[str, str] = field(default_factory=dict)  # workspace -> Omarchy mode to set first
+    warm: dict[str, list[str]] = field(default_factory=dict)  # closed browser -> command starting it,
+                                                              # before its tab windows (switching)
 
     def count(self, action: str) -> int:
         return sum(1 for w in self.windows if w.action == action)
@@ -154,6 +156,7 @@ class Plan:
             "screens": self.screens,
             "elsewhere": self.elsewhere,
             "modes": self.modes,
+            "warm": self.warm,
             "summary": {a: self.count(a) for a in ("launch", "move", "in-place", "skip", "problem")},
         }
 
@@ -189,7 +192,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
           name: str = "", marks: set[str] | frozenset = frozenset(),
           fold: str = FOLD_OMARCHY, tabs: dict[str, dict] | None = None,
           cold: Callable[[str, str], bool] = lambda app, profile: False,
-          mode_now: Callable[[str], str] | None = None) -> Plan:
+          mode_now: Callable[[str], str] | None = None, switching: bool = False) -> Plan:
     """The plan for restoring `session` onto the desktop in `source`.
 
     `entries` are the apps installed now, `never` is the never-restore check
@@ -229,6 +232,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
                      [t[0] if t else None for t in targets], tabs)
 
     workspace_steps: dict[int, WorkspaceStep] = {}
+    warm: dict[str, list[str]] = {}
     missing: list[str] = []
     steps = []
     for index, saved in enumerate(session["windows"]):
@@ -320,7 +324,8 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
             saved_tabs = saved.get("tabs") or {}
             urls = [u for u in saved_tabs.get("urls") or [] if browsers.usable(u)]
             profile = str(saved_tabs.get("profile") or "Default")
-            if urls and cold(saved["app"], profile):
+            is_cold = bool(urls) and cold(saved["app"], profile)
+            if is_cold and not switching:
                 step.notes.append("the browser isn't open and continues where it left off, "
                                   "so it brings back its own tabs")
             elif urls and browsers.is_browser(saved["app"], entry.id):
@@ -328,6 +333,10 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
                 if command:
                     step.command, step.tabs = command, urls
                     step.notes.append(f"opens with its {len(urls)} tab" + ("s" if len(urls) > 1 else ""))
+                    if is_cold:
+                        warm.setdefault(saved["app"], desktop_command(entry.id))
+                        step.notes.append("the browser isn't open: it is started first, out of sight, "
+                                          "and the windows it brings back by itself are closed")
 
     taken = {s.window for s in steps if s.window}
     pinned_apps = {w.app for w in open_windows if w.pinned}
@@ -344,7 +353,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
     return Plan(name, session.get("saved_at"), sorted(workspace_steps.values(), key=lambda w: w.workspace),
                 steps, missing, len(open_windows) - len(taken), others, pinned,
                 _views(session, state, by_identity, mapping), _screens(session, mapping, by_identity),
-                mapping.elsewhere, mapping.elsewhere and not follow, _modes(steps, mode_now))
+                mapping.elsewhere, mapping.elsewhere and not follow, _modes(steps, mode_now), warm)
 
 
 def _modes(steps: list[WindowStep], mode_now: Callable[[str], str] | None) -> dict[str, str]:

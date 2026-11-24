@@ -34,7 +34,11 @@ Order matters:
        somewhere else is moved as before. The rules go when the launches are
        done, and a timer inside Hyprland removes them if Snapback dies first.
        Browser windows with saved tabs are opened one at a time, each caught
-       before the next, as their titles can't tell them apart.
+       before the next, as their titles can't tell them apart. When switching
+       finds such a browser closed and set to continue where it left off, it
+       is started first with its windows opening on the hidden staging
+       workspace, and those are closed once the tab windows are open: started
+       with the tabs, it would bring back its own last windows instead.
     5. Put tiled windows back in their layout. Reopened apps arrive in any
        order, and dwindle builds its tree of splits from arrival order, so a
        workspace can come back the wrong shape. Where it did, its restored
@@ -336,11 +340,80 @@ def _restore(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float
             report.results.append(Result(step, "unrestorable", detail=step.reason))
         else:
             report.results.append(Result(step, "skipped", detail=step.reason))
+    warmed = _warm(plan, desk, report, timeout, poll, log) if launches else []
     if launches:
         _launch([s for s in launches if not s.tabs], desk, report, timeout, poll, log)
         for step in launches:
             if step.tabs:
                 _launch([step], desk, report, timeout, poll, log)
+    _close_warmed(warmed, plan, desk, report, poll, log)
+
+
+WARM_QUIET = 1.5  # seconds without a new window: the browser has brought back all it will
+
+
+def _warm(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float, log) -> list[str]:
+    """Start each closed browser that would bring back its own last session
+    (switching only, see Plan.warm), its windows opening out of sight, so the
+    session's tab windows then open with just their tabs. Returns the windows
+    the browsers brought back by themselves."""
+    warmed: list[str] = []
+    for app, command in plan.warm.items():
+        before = {c["address"] for c in desk.clients()}
+        try:
+            desk.set_open_rules({app: STAGING}, int(timeout * 1000) + 10_000)
+        except hypr.HyprError as exc:
+            log(f"couldn't set the window rule that opens {app}'s own windows out of sight: {exc}")
+        try:
+            desk.launch(command)
+            log(f"started {' '.join(command)} before opening its windows")
+        except OSError as exc:
+            report.errors.append(f"couldn't start {app}: {exc}")
+            continue
+        seen: set[str] = set()
+        changed = desk.now()
+        deadline = changed + timeout
+        while desk.now() < deadline:
+            now = {c["address"] for c in desk.clients()
+                   if c["address"] not in before and app_of(c) == app and c.get("mapped", True)}
+            if now != seen:
+                seen, changed = now, desk.now()
+            elif seen and desk.now() - changed >= WARM_QUIET:
+                break
+            desk.sleep(poll)
+        if not seen:
+            report.errors.append(f"{app} didn't open a window within {timeout:g}s")
+        warmed += sorted(seen)
+    if plan.warm:
+        try:
+            desk.set_open_rules({})
+        except hypr.HyprError as exc:
+            report.errors.append(f"couldn't remove Snapback's window rules: {exc}")
+    return warmed
+
+
+def _close_warmed(warmed: list[str], plan: Plan, desk: Desk, report: Report, poll: float, log) -> None:
+    """Close the windows a browser brought back by itself while it was
+    started (_warm), now that the session's own windows keep it running. One
+    that won't close is brought out where its session's windows are."""
+    if not warmed:
+        return
+    names = {c["address"]: c.get("title") or app_of(c) for c in desk.clients() if c["address"] in warmed}
+    # Not the user's windows closing: only one that stays open is reported.
+    closing = Report()
+    _close_others([{"address": a, "name": names.get(a, a)} for a in warmed], desk, closing, 5.0, poll,
+                  lambda line: log(line + " (the browser brought it back by itself)"))
+    report.errors += closing.errors
+    report.kept += closing.kept
+    for client in desk.clients():
+        if client["address"] not in warmed:
+            continue
+        home = next((s.workspace for s in plan.windows
+                     if s.app == app_of(client) and s.workspace and s.workspace.isdecimal()), "1")
+        try:
+            desk.dispatch("window.move", window=f"address:{client['address']}", workspace=home, follow=False)
+        except hypr.HyprError as exc:
+            report.errors.append(f"couldn't bring out a window the browser brought back: {exc}")
 
 
 def _launch(launches: list[WindowStep], desk: Desk, report: Report, timeout: float, poll: float, log) -> None:

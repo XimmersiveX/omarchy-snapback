@@ -882,6 +882,73 @@ class BrowserTabs(unittest.TestCase):
         self.assertNotIn(old, {c["address"] for c in fake.clients()})
 
 
+class ClosedBrowser(unittest.TestCase):
+    """Switching while the browser is closed and set to continue where it left off."""
+
+    def run_switch(self, opens=None, stubborn=False):
+        session = saved_scene()
+        session["windows"] = [w for w in session["windows"] if w["app"] == "chromium"]
+        session["windows"][0]["tabs"] = {"profile": "Default", "urls": ["https://a.example/"]}
+        source = empty(desk("tv-on-scene"))
+        p = plan.build(session, source, ENTRIES, cold=lambda app, profile: True, switching=True)
+        fake = FakeDesk(source, opens or {
+            "chromium.desktop": [("chromium", "YouTube - Chromium"), ("chromium", "New Tab - Chromium")],
+            "https://a.example/": [("chromium", "A")]})
+        if stubborn:
+            real = fake.dispatch
+
+            def dispatch(method, **args):
+                if method == "window.close" and fake._by(args["window"])["title"] != "A":
+                    fake.calls.append((method, args))
+                    return None
+                return real(method, **args)
+            fake.dispatch = dispatch
+        report = restore.run(p, fake, timeout=10, close_others=True)
+        return p, fake, report
+
+    def test_the_browser_is_started_first_out_of_sight_and_its_own_windows_closed(self):
+        _, fake, report = self.run_switch()
+        self.assertEqual(fake.launched[0], ["uwsm-app", "--", "chromium.desktop"])
+        self.assertEqual(fake.launched[1][-1], "https://a.example/")
+        own = [a for a, ws in fake.opened_on.items() if ws == restore.STAGING]
+        self.assertEqual(len(own), 2)
+        left = {c["address"]: c for c in fake.clients()}
+        self.assertFalse(any(a in left for a in own))
+        tab = next(r for r in report.results if r.step.app == "chromium")
+        self.assertEqual((tab.outcome, left[tab.address]["title"]), ("placed", "A"))
+        self.assertEqual(report.closed, [])   # not windows of the user's closing
+        self.assertEqual(report.extra, [])
+        self.assertEqual(report.errors, [])
+        self.assertEqual(fake.rules, {})
+
+    def test_its_windows_close_only_after_the_tab_window_is_open(self):
+        # Closing them first would quit the browser, and started again it
+        # would bring them back once more.
+        seen = []
+        real = FakeDesk.dispatch
+
+        def dispatch(fake, method, **args):
+            if method == "window.close":
+                seen.append(any(c["title"] == "A" for c in fake._clients))
+            return real(fake, method, **args)
+        FakeDesk.dispatch = dispatch
+        try:
+            self.run_switch()
+        finally:
+            FakeDesk.dispatch = real
+        self.assertEqual(seen, [True, True])
+
+    def test_one_that_will_not_close_is_brought_out_not_left_hidden(self):
+        p, fake, report = self.run_switch(stubborn=True)
+        self.assertFalse(any(c["workspace"]["name"] == restore.STAGING for c in fake.clients()))
+        self.assertEqual(len(report.kept), 2)
+
+    def test_a_browser_that_never_opens_is_an_error_and_the_switch_goes_on(self):
+        _, fake, report = self.run_switch(opens={"https://a.example/": [("chromium", "A")]})
+        self.assertIn("didn't open a window", report.errors[0])
+        self.assertEqual(report.count("placed"), 1)
+
+
 class OpenInPlace(unittest.TestCase):
     """Launched windows open straight on their workspace, not on the screen in front."""
 

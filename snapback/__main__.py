@@ -81,12 +81,13 @@ def live_modes(source: Source) -> Callable[[str], str] | None:
 
 
 def plan_restore(saved: dict, source: Source, resolver: apps.Resolver, tabs: dict | None,
-                 name: str = "") -> plan.Plan:
+                 name: str = "", switching: bool = False) -> plan.Plan:
     """The plan for putting `saved` back. `tabs` are the open browser windows'
     tabs, or None when planning against a recording (nothing live to ask)."""
     live = {} if tabs is None else {"tabs": tabs, "cold": browsers.cold_restore, "mode_now": live_modes(source)}
     return plan.build(saved, source, resolver.entries, resolver.is_never, apps.default_terminal(),
-                      name=name, marks=screens.load_marks(), fold=screens.load_fold(), **live)
+                      name=name, marks=screens.load_marks(), fold=screens.load_fold(), switching=switching,
+                      **live)
 
 
 def record(name: str, trigger: str, report: restore.Report | None = None, **details) -> None:
@@ -147,7 +148,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
     resolver = load_resolver()
     source = Source.from_dir(Path(args.source)) if args.source else Source.live()
     tabs = None if args.source else browsers.open_tabs(source.snapshot["clients"])
-    result = plan_restore(saved, source, resolver, tabs, name=path.stem)
+    result = plan_restore(saved, source, resolver, tabs, name=path.stem, switching=args.close_others)
     if args.dry_run:
         if args.json:
             print(json.dumps(result.to_dict(), indent=2))

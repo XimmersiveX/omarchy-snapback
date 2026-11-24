@@ -537,6 +537,18 @@ class BrowserTabs(unittest.TestCase):
         self.assertEqual(asked, [("chromium", "Profile 1")])
         self.assertTrue(any("its own tabs" in n for n in w["chromium"].notes))
 
+    def test_a_switch_starts_a_closed_browser_first_and_still_opens_the_tabs(self):
+        cold = lambda app, profile: True  # noqa: E731
+        result, w = make(with_tabs(), empty(desk("tv-on-scene")), cold=cold, switching=True)
+        self.assertEqual(w["chromium"].command, ["uwsm-app", "--", "x", "--new-window", "--", *DASH])
+        self.assertEqual(w["chromium"].tabs, DASH)
+        self.assertEqual(result.warm, {"chromium": ["uwsm-app", "--", "chromium.desktop"]})
+        self.assertTrue(any("started first" in n for n in w["chromium"].notes))
+
+    def test_a_running_browser_needs_no_start(self):
+        result, _ = make(with_tabs(), empty(desk("tv-on-scene")), switching=True)
+        self.assertEqual(result.warm, {})
+
     def test_saved_urls_are_checked_again_before_opening(self):
         _, w = make(with_tabs(["--evil", "chrome://newtab/"]), empty(desk("tv-on-scene")))
         self.assertEqual(w["chromium"].command, ["uwsm-app", "--", "chromium.desktop"])

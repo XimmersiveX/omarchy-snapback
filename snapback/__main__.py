@@ -355,7 +355,7 @@ def cmd_login(args: argparse.Namespace) -> int:
             shutil.copy2(path, backup)
             backup.chmod(0o600)
         except OSError as exc:
-            print(f"snapback: couldn't keep the session as {session.PREVIOUS_NAME!r}: {exc}",
+            print(f"snapback: couldn't keep the autosave as {session.PREVIOUS_NAME!r}: {exc}",
                   file=sys.stderr, flush=True)
         name = session.DEFAULT_NAME
         try:
@@ -373,7 +373,7 @@ def cmd_login(args: argparse.Namespace) -> int:
             print(f"snapback: restore failed: {exc}", file=sys.stderr, flush=True)
             record(name, "login", error=str(exc))
             notify("Snapback couldn't restore your windows",
-                   f"{exc}\nYour session is kept as {session.PREVIOUS_NAME!r}.", urgent=True)
+                   f"{exc}\nYour windows are kept as the setup {session.PREVIOUS_NAME!r}.", urgent=True)
     return cmd_watch(args)
 
 
@@ -395,7 +395,7 @@ def cmd_delete(args: argparse.Namespace) -> int:
     try:
         path.unlink()
     except FileNotFoundError:
-        print(f"snapback: no saved session named {args.name!r}", file=sys.stderr)
+        print(f"snapback: no saved setup named {args.name!r}", file=sys.stderr)
         return 1
     print(f"Deleted {path}.")
     return 0
@@ -408,7 +408,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
             if setup.unit_running():
                 setup.stop()
             print(f"Removed {setup.hook_path()}." if removed else "Snapback wasn't set up.")
-            print("Saved sessions are kept in " + str(session.sessions_dir()) + ".")
+            print("Saved setups are kept in " + str(session.sessions_dir()) + ".")
             return 0
         path = setup.install()
     except FileExistsError as exc:
@@ -450,7 +450,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     if snap["restoring"]:
         print("A restore is running.")
     print()
-    print(f"Sessions ({len(snap['sessions'])})")
+    print(f"Setups ({len(snap['sessions'])})")
     for s in snap["sessions"]:
         if "error" in s:
             print(f"  {s['name']:<10} !! {s['error']}")
@@ -542,39 +542,39 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("save", help="save the open windows so they can be restored")
     p.add_argument("name", nargs="?", default=session.DEFAULT_NAME,
-                   help=f"session name (default {session.DEFAULT_NAME!r})")
+                   help=f"setup name (default {session.DEFAULT_NAME!r}, the autosave)")
     p.add_argument("--dry-run", action="store_true", help="show what would be saved, write nothing")
-    p.add_argument("--json", action="store_true", help="print the session as JSON")
+    p.add_argument("--json", action="store_true", help="print the setup as JSON")
     p.add_argument("--force", action="store_true",
-                   help="replace a saved session even with one that reopens nothing")
+                   help="replace a saved setup even with one that reopens nothing")
     p.add_argument("--from", dest="source", metavar="DIR", help="use a recorded fixture")
     p.set_defaults(func=cmd_save)
 
-    p = sub.add_parser("restore", help="put a saved session back")
+    p = sub.add_parser("restore", help="put a saved setup back")
     p.add_argument("name", nargs="?", default=session.DEFAULT_NAME,
-                   help=f"session name (default {session.DEFAULT_NAME!r})")
+                   help=f"setup name (default {session.DEFAULT_NAME!r}, the autosave)")
     p.add_argument("--dry-run", action="store_true", help="show what would happen, change nothing")
     p.add_argument("--json", action="store_true", help="print the plan as JSON")
-    p.add_argument("--file", metavar="PATH", help="read the session from this file instead")
+    p.add_argument("--file", metavar="PATH", help="read the setup from this file instead")
     p.add_argument("--from", dest="source", metavar="DIR", help="plan against a recorded fixture")
     p.add_argument("--timeout", type=float, default=30.0, metavar="S",
                    help="seconds to wait for reopened apps' windows (default 30)")
     p.add_argument("--notify", action="store_true", help="say how it went in a desktop notification")
     p.add_argument("--close-others", action="store_true",
-                   help="switch to the session: save the desk as 'before-switch' (switching to "
-                        "that undoes it), then ask open windows the session doesn't name to close "
+                   help="switch to the setup: save the desk as 'before-switch' (switching to "
+                        "that undoes it), then ask open windows the setup doesn't name to close "
                         "(as their close button does; unsaved work can still ask)")
     p.set_defaults(func=cmd_restore)
 
-    p = sub.add_parser("delete", help="delete a saved session")
+    p = sub.add_parser("delete", help="delete a saved setup")
     p.add_argument("name")
     p.set_defaults(func=cmd_delete)
 
-    p = sub.add_parser("watch", help="keep the 'last' session saved as windows change")
+    p = sub.add_parser("watch", help="keep the autosave ('last') current as windows change")
     p.add_argument("--verbose", action="store_true", help="say what it does")
     p.set_defaults(func=cmd_watch)
 
-    p = sub.add_parser("login", help="restore the last session, then watch (run by the login hook)")
+    p = sub.add_parser("login", help="restore the autosave, then watch (run by the login hook)")
     p.add_argument("--settle", type=float, default=3.0, metavar="S",
                    help="seconds to wait before restoring (default 3)")
     p.add_argument("--timeout", type=float, default=45.0, metavar="S",
@@ -582,8 +582,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--verbose", action="store_true", help="say what it does")
     p.set_defaults(func=cmd_login)
 
-    p = sub.add_parser("setup", help="restore at login and keep the session saved")
-    p.add_argument("--remove", action="store_true", help="undo it (saved sessions are kept)")
+    p = sub.add_parser("setup", help="restore at login and keep the autosave current")
+    p.add_argument("--remove", action="store_true", help="undo it (saved setups are kept)")
     p.add_argument("--no-start", action="store_true", help="don't start watching this session now")
     p.set_defaults(func=cmd_setup)
 

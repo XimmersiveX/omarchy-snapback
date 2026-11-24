@@ -37,7 +37,7 @@ def sessions_dir() -> Path:
 
 def session_path(name: str, directory: Path | None = None) -> Path:
     if not NAME_RE.match(name) or name.endswith(".json"):
-        raise SessionError(f"bad session name {name!r}: use letters, digits, '.', '_' or '-'")
+        raise SessionError(f"bad setup name {name!r}: use letters, digits, '.', '_' or '-'")
     return (directory or sessions_dir()) / f"{name}.json"
 
 
@@ -150,7 +150,7 @@ def write(session: dict, path: Path, force: bool = False) -> None:
             previous = {}
         if restorable(previous) > 0:
             raise SessionError(
-                f"nothing to reopen in this session, so {path} (which has "
+                f"nothing to reopen on the desk now, so {path} (which has "
                 f"{restorable(previous)}) was kept; use --force to replace it")
 
     files.write_json(session, path)
@@ -160,11 +160,11 @@ def read(path: Path) -> dict:
     try:
         session = json.loads(path.read_text())
     except FileNotFoundError as exc:
-        raise SessionError(f"no saved session at {path}") from exc
+        raise SessionError(f"no saved setup at {path}") from exc
     except (OSError, json.JSONDecodeError) as exc:
         raise SessionError(f"can't read {path}: {exc}") from exc
     if not isinstance(session, dict):
-        raise SessionError(f"{path} isn't a Snapback session")
+        raise SessionError(f"{path} isn't a Snapback setup")
     if session.get("snapback") != SCHEMA:
         raise SessionError(f"{path} is from a different Snapback version "
                            f"(format {session.get('snapback')!r}, expected {SCHEMA})")

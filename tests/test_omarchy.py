@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from snapback.omarchy import WorkspaceState
+from snapback.omarchy import WorkspaceModes, WorkspaceState
 
 BLOCKS = (
     "0\tHDMI-A-1\tLG TV SERIAL3\n"
@@ -102,3 +102,43 @@ class Layouts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Modes(unittest.TestCase):
+    """Omarchy's per-workspace layout modes (Super + L)."""
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+
+    def write(self, name, text):
+        (self.dir / name).write_text(text)
+
+    def test_a_workspace_file_names_its_mode(self):
+        self.write("1.lua", 'o.workspace_mode({ workspace = "1", mode = "floating" })\n')
+        modes = WorkspaceModes.load(self.dir)
+        self.assertEqual(modes.mode("1", "scrolling"), "floating")  # floating keeps the old tiled layout
+        self.assertEqual(modes.mode("2", "dwindle"), "dwindle")
+
+    def test_others_follow_the_default_then_hyprland(self):
+        self.write("default.lua", 'o.workspace_mode({ default = "scrolling" })\n')
+        self.write("3.lua", "garbage")
+        modes = WorkspaceModes.load(self.dir)
+        self.assertEqual(modes.mode("3", "dwindle"), "scrolling")
+        self.assertEqual(WorkspaceModes.load(self.dir / "none").mode("3", "master"), "dwindle")
+        self.assertEqual(WorkspaceModes.load(self.dir / "none").mode("3", None), "dwindle")
+
+    def test_remember_writes_what_super_l_writes_and_removes_the_default(self):
+        modes = WorkspaceModes.load(self.dir / "layouts")
+        modes.remember("4", "floating", "dwindle")
+        path = self.dir / "layouts" / "4.lua"
+        self.assertEqual(path.read_text(), 'o.workspace_mode({ workspace = "4", mode = "floating" })\n')
+        self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(WorkspaceModes.load(self.dir / "layouts").mode("4", "dwindle"), "floating")
+        modes.remember("4", "dwindle", "dwindle")
+        self.assertFalse(path.exists())
+
+    def test_remember_refuses_what_omarchy_would_not_read(self):
+        modes = WorkspaceModes.load(self.dir)
+        for workspace, mode in (("special:x", "floating"), ("4", "master"), ("../4", "dwindle")):
+            with self.assertRaises(ValueError):
+                modes.remember(workspace, mode, "dwindle")

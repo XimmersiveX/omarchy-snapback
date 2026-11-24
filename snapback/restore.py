@@ -10,6 +10,9 @@ Order matters:
        step 4 has opened the browser windows with saved tabs: closing them all
        first could make the browser quit, and a browser started again brings
        back its own last session.
+       Then put each workspace in the Omarchy mode (tiling, scrolling,
+       floating) it was saved in, before windows land there, and keep that
+       mode for next login as Super + L does.
     1. Turn off misc:focus_on_activate, so reopened apps don't yank focus
        around. It is turned back on in a `finally`, and a timer inside
        Hyprland turns it back on anyway if Snapback dies before that.
@@ -74,7 +77,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from . import files, hypr, layout
+from . import files, hypr, layout, omarchy
 from .capture import app_of
 from .geometry import Rect, contains, logical_size
 from .plan import Plan, WindowStep
@@ -97,6 +100,7 @@ class Desk(Protocol):
     def set_open_rules(self, rules: dict[str, str], failsafe_ms: int | None = None) -> None: ...
     def focus_on_activate(self) -> bool: ...
     def set_focus_on_activate(self, on: bool, failsafe_ms: int | None = None) -> None: ...
+    def set_workspace_mode(self, workspace: str, mode: str) -> None: ...
     def sleep(self, seconds: float) -> None: ...
     def now(self) -> float: ...
 
@@ -163,6 +167,23 @@ class LiveDesk:
         else:
             hypr.evaluate(f"{setting} _G.snapback_restore = nil")
 
+    def set_workspace_mode(self, workspace: str, mode: str) -> None:
+        """Put a workspace in an Omarchy layout mode and keep it there, as
+        Super + L does (omarchy-hyprland-workspace-layout-toggle)."""
+        hypr.evaluate(f"o.workspace_mode({{ workspace = {hypr.lua(workspace)}, mode = {hypr.lua(mode)} }})")
+        try:
+            general = hypr.option("general:layout")
+        except hypr.HyprError:
+            general = None
+        try:
+            omarchy.WorkspaceModes.load().remember(workspace, mode, general)
+        except OSError as exc:
+            raise hypr.HyprError(f"ws {workspace} is {mode} now, but couldn't keep it for next login: {exc}")
+        # The bar shows the focused workspace's mode, and the dock floating ones.
+        for widget in ("omarchy.workspaces", "omarchy.dock"):
+            subprocess.run(["omarchy-shell", "-q", widget, "refresh"], stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False)
+
     def sleep(self, seconds: float) -> None:
         time.sleep(seconds)
 
@@ -185,6 +206,7 @@ class Report:
     reordered: list[str] = field(default_factory=list)  # workspaces whose tiles were swapped
     rebuilt: list[str] = field(default_factory=list)    # workspaces whose layout was rebuilt
     other_layout: dict[str, str] = field(default_factory=dict)  # ws -> non-dwindle layout: swapped, not rebuilt
+    modes: dict[str, str] = field(default_factory=dict)  # ws -> Omarchy mode it was put in
     errors: list[str] = field(default_factory=list)  # problems outside any one window
     closed: list[str] = field(default_factory=list)  # names of windows closed (switching)
     kept: list[str] = field(default_factory=list)    # asked to close, still open
@@ -202,6 +224,7 @@ class Report:
             "reordered": self.reordered,
             "rebuilt": self.rebuilt,
             "otherLayout": self.other_layout,
+            "modes": self.modes,
             "errors": self.errors,
             "closed": self.closed,
             "kept": self.kept,
@@ -230,6 +253,7 @@ def run(plan: Plan, desk: Desk, timeout: float = 30.0, poll: float = 0.25,
     later = [o for o in plan.others if o["app"] in tabbed] if close_others else []
     if close_others:
         _close_others([o for o in plan.others if o["app"] not in tabbed], desk, report, close_wait, poll, log)
+    _set_modes(plan, desk, report, log)
     focused = desk.active_window()
     turned_off = desk.focus_on_activate()
     if turned_off:
@@ -250,6 +274,18 @@ def run(plan: Plan, desk: Desk, timeout: float = 30.0, poll: float = 0.25,
                 report.errors.append(f"couldn't turn focus_on_activate back on: {exc}")
         _refocus(desk, focused, plan, report)
     return report
+
+
+def _set_modes(plan: Plan, desk: Desk, report: Report, log) -> None:
+    """Put each workspace in the Omarchy mode it was saved in, before any
+    window lands there: tiling, scrolling or floating decides how they sit."""
+    for workspace, mode in plan.modes.items():
+        try:
+            desk.set_workspace_mode(workspace, mode)
+            report.modes[workspace] = mode
+            log(f"put ws {workspace} in {mode} mode")
+        except (hypr.HyprError, subprocess.SubprocessError) as exc:
+            report.errors.append(f"couldn't put ws {workspace} in {mode} mode: {exc}")
 
 
 def _close_others(others: list[dict], desk: Desk, report: Report, wait: float, poll: float, log) -> None:

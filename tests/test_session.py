@@ -54,6 +54,16 @@ class Build(unittest.TestCase):
         self.assertTrue(f3["floating"])
         self.assertEqual((f3["placement"]["dx"], f3["placement"]["dy"]), (100, 120))
 
+    def test_each_window_keeps_its_workspace_mode(self):
+        source = Source.from_dir(FIXTURES / "tv-on-scene")
+        saved = build(source, Resolver(ENTRIES), lambda pid: ProcInfo(), {}, NOW,
+                      modes=lambda ws: "floating" if ws == "1" else "dwindle")
+        windows = {w["app"]: w for w in saved["windows"]}
+        self.assertEqual(windows["chromium"]["workspace_mode"], "floating")
+        self.assertEqual(windows["snapback-test-f2"]["workspace_mode"], "dwindle")
+        self.assertIsNone(windows["snapback-test-s1"]["workspace_mode"])  # special: no mode
+        self.assertIsNone(self.windows["chromium"]["workspace_mode"])     # Omarchy without modes
+
     def test_special_workspace_is_kept(self):
         s1 = self.windows["snapback-test-s1"]
         self.assertTrue(s1["workspace"].startswith("special:"))

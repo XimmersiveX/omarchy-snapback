@@ -188,6 +188,11 @@ class FakeDesk:
         self.option = on
         self.failsafe = failsafe_ms
 
+    def set_workspace_mode(self, workspace, mode):
+        self.calls.append(("workspace_mode", {"workspace": workspace, "mode": mode}))
+        if "workspace_mode" in self.fail:
+            raise hypr.HyprError("workspace_mode refused")
+
     def sleep(self, seconds):
         self.clock += 1
 

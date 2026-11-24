@@ -62,7 +62,7 @@ from . import browsers
 from .apps import TUI_ID, DesktopEntry, exec_args
 from .capture import CapturedWindow, Source, capture
 from .geometry import Monitor, Placement, Rect, project
-from .omarchy import SLOTS, slot_of
+from .omarchy import MODES, SLOTS, slot_of
 from .screens import FOLD_OMARCHY, Mapping, map_screens
 
 GEOMETRY_TOLERANCE = 2.0
@@ -106,6 +106,7 @@ class WindowStep:
     tile_box: tuple[float, float, float, float] | None = None  # tiled: saved (x0, y0, x1, y1), same
     command: list[str] | None = None  # launch only
     tabs: list[str] | None = None     # launch only: the browser window opens with these tabs
+    workspace_mode: str | None = None  # the Omarchy mode its workspace was saved in
     window: str | None = None         # address of the open window it matched
     matched_by: str | None = None     # window (same window), title, or app (any of its windows)
     now: str | None = None            # workspace that window is on now
@@ -134,6 +135,7 @@ class Plan:
     screens: list[dict] = field(default_factory=list)  # how each saved screen lands today
     elsewhere: bool = False           # the setup's main screen isn't here: screens matched by role
     park: bool = False                # park windows before moving them (Snapback's own folding)
+    modes: dict[str, str] = field(default_factory=dict)  # workspace -> Omarchy mode to set first
 
     def count(self, action: str) -> int:
         return sum(1 for w in self.windows if w.action == action)
@@ -151,6 +153,7 @@ class Plan:
             "views": self.views,
             "screens": self.screens,
             "elsewhere": self.elsewhere,
+            "modes": self.modes,
             "summary": {a: self.count(a) for a in ("launch", "move", "in-place", "skip", "problem")},
         }
 
@@ -185,7 +188,8 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
           is_dir: Callable[[str], bool] = os.path.isdir,
           name: str = "", marks: set[str] | frozenset = frozenset(),
           fold: str = FOLD_OMARCHY, tabs: dict[str, dict] | None = None,
-          cold: Callable[[str, str], bool] = lambda app, profile: False) -> Plan:
+          cold: Callable[[str, str], bool] = lambda app, profile: False,
+          mode_now: Callable[[str], str] | None = None) -> Plan:
     """The plan for restoring `session` onto the desktop in `source`.
 
     `entries` are the apps installed now, `never` is the never-restore check
@@ -229,7 +233,9 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
     steps = []
     for index, saved in enumerate(session["windows"]):
         step = WindowStep(saved["app"], saved.get("title", ""), "problem",
-                          floating=bool(saved.get("floating")), fullscreen=fullscreen_mode(saved))
+                          floating=bool(saved.get("floating")), fullscreen=fullscreen_mode(saved),
+                          workspace_mode=saved.get("workspace_mode") if saved.get("workspace_mode") in MODES
+                          else None)
         steps.append(step)
         reason = saved.get("skip")
         if reason or never(saved["app"]) or (saved.get("launch") and never(saved["launch"]["entry"])):
@@ -338,7 +344,21 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
     return Plan(name, session.get("saved_at"), sorted(workspace_steps.values(), key=lambda w: w.workspace),
                 steps, missing, len(open_windows) - len(taken), others, pinned,
                 _views(session, state, by_identity, mapping), _screens(session, mapping, by_identity),
-                mapping.elsewhere, mapping.elsewhere and not follow)
+                mapping.elsewhere, mapping.elsewhere and not follow, _modes(steps, mode_now))
+
+
+def _modes(steps: list[WindowStep], mode_now: Callable[[str], str] | None) -> dict[str, str]:
+    """Workspace -> the Omarchy mode to put it in: the one its windows were
+    saved in, where that isn't its mode now. Setups saved before modes were,
+    and workspaces two saved ones now share with different modes, are left be."""
+    if mode_now is None:
+        return {}
+    wanted: dict[str, set[str]] = {}
+    for step in steps:
+        if step.action in ("launch", "move", "in-place") and step.workspace and step.workspace.isdecimal():
+            wanted.setdefault(step.workspace, set()).add(step.workspace_mode)
+    return {ws: mode for ws, modes in sorted(wanted.items(), key=lambda kv: int(kv[0]))
+            if len(modes) == 1 and (mode := next(iter(modes))) and mode != mode_now(ws)}
 
 
 def app_name(app: str, entries: dict[str, DesktopEntry]) -> str:

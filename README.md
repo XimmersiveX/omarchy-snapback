@@ -20,6 +20,8 @@ It also keeps your desk saved as you work, and can put it back after a reboot.
   workspace has the shape you saved. That's for dwindle, Omarchy's tiling layout; on a scrolling
   or master workspace windows go back in their saved order, but column widths and splits stay as
   the layout makes them.
+- **Workspace layouts.** Each workspace comes back in the layout you gave it with Super + L
+  (tiling, scrolling or floating), and keeps it after a reboot.
 - **Floating windows** at their size and spot, and **full screen** or **full width** windows that way.
 - **Browser tabs, per window.** For Chromium, Google Chrome and Brave, each window comes back with
   its own tabs: your dashboard window with the dashboard, not a blank New Tab.

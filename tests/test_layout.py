@@ -217,3 +217,43 @@ def _source_of(fake):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WorkspaceModes(unittest.TestCase):
+    """A setup puts each workspace back in the Omarchy mode it was saved in."""
+
+    def plan(self, saved_modes, now="dwindle", mode_now=True):
+        session = tv_layout_session()
+        for w, mode in zip(session["windows"], saved_modes):
+            w["workspace_mode"] = mode
+        source = empty(desk("tv-on-scene"))
+        return plan.build(session, source, entries(), mode_now=(lambda ws: now) if mode_now else None), source
+
+    def test_a_workspace_saved_tiling_is_tiled_again(self):
+        p, _ = self.plan(["dwindle"] * 4, now="floating")
+        self.assertEqual(p.modes, {"23": "dwindle"})
+
+    def test_nothing_changes_when_it_already_is_or_cannot_be_known(self):
+        self.assertEqual(self.plan(["floating"] * 4, now="floating")[0].modes, {})
+        self.assertEqual(self.plan([None] * 4, now="floating")[0].modes, {})          # saved before modes
+        self.assertEqual(self.plan(["dwindle"] * 4, now="floating", mode_now=False)[0].modes, {})
+        self.assertEqual(self.plan(["dwindle", "scrolling", "dwindle", "dwindle"],
+                                   now="floating")[0].modes, {})                         # two setups' worth
+
+    def test_the_mode_is_set_before_any_window_lands(self):
+        p, source = self.plan(["scrolling"] * 4)
+        fake = FakeDesk(source, OPENS)
+        report = restore.run(p, fake, timeout=20)
+        names = [m for m, _ in fake.calls]
+        self.assertEqual(names[0], "workspace_mode")
+        self.assertEqual(fake.calls[0][1], {"workspace": "23", "mode": "scrolling"})
+        self.assertEqual(report.modes, {"23": "scrolling"})
+        self.assertEqual(report.to_dict()["modes"], {"23": "scrolling"})
+
+    def test_a_mode_that_fails_is_reported_and_the_restore_goes_on(self):
+        p, source = self.plan(["scrolling"] * 4)
+        fake = FakeDesk(source, OPENS, fail={"workspace_mode"})
+        report = restore.run(p, fake, timeout=20)
+        self.assertEqual(report.count("placed"), 4)
+        self.assertEqual(report.modes, {})
+        self.assertIn("couldn't put ws 23 in scrolling mode", report.errors[0])

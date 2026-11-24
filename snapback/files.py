@@ -30,12 +30,19 @@ def write_json(data: object, path: Path, sort_keys: bool = False) -> None:
     """Write atomically (a reader sees the old file or the new one, never half),
     readable only by the user."""
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    write_text(json.dumps(data, indent=2, sort_keys=sort_keys) + "\n", path)
+
+
+def write_text(text: str, path: Path, mode: int = 0o600) -> None:
+    """Write atomically into an existing folder, with these permissions."""
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as file:  # mkstemp creates it 0600
-            file.write(json.dumps(data, indent=2, sort_keys=sort_keys) + "\n")
+            file.write(text)
             file.flush()
             os.fsync(file.fileno())
+        if mode != 0o600:
+            os.chmod(tmp, mode)
         os.replace(tmp, path)
     except BaseException:
         try:

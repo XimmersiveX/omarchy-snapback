@@ -64,14 +64,27 @@ def save_live(source: Source, resolver: apps.Resolver,
               tabs: Callable[[list[dict]], dict] = browsers.open_tabs) -> dict:
     """The session for the live desk in `source`."""
     return session.build(source, resolver, apps.read_proc, versions_of(source),
-                         marks=screens.load_marks(), tabs=tabs)
+                         marks=screens.load_marks(), tabs=tabs, modes=live_modes(source) or (lambda ws: None))
+
+
+def live_modes(source: Source) -> Callable[[str], str] | None:
+    """Each workspace's Omarchy layout mode now, or None where Omarchy has none."""
+    modes = omarchy.WorkspaceModes.load()
+    if not modes.found:
+        return None
+    tiled = {w["name"]: w.get("tiledLayout") for w in source.snapshot.get("workspaces", [])}
+    try:
+        general = hypr.option("general:layout")
+    except hypr.HyprError:
+        general = None
+    return lambda workspace: modes.mode(workspace, tiled.get(workspace) or general)
 
 
 def plan_restore(saved: dict, source: Source, resolver: apps.Resolver, tabs: dict | None,
                  name: str = "") -> plan.Plan:
     """The plan for putting `saved` back. `tabs` are the open browser windows'
     tabs, or None when planning against a recording (nothing live to ask)."""
-    live = {} if tabs is None else {"tabs": tabs, "cold": browsers.cold_restore}
+    live = {} if tabs is None else {"tabs": tabs, "cold": browsers.cold_restore, "mode_now": live_modes(source)}
     return plan.build(saved, source, resolver.entries, resolver.is_never, apps.default_terminal(),
                       name=name, marks=screens.load_marks(), fold=screens.load_fold(), **live)
 
@@ -188,6 +201,8 @@ def show_report(report: restore.Report, off: list[plan.WindowStep]) -> None:
         print(f"  ok    layout of ws {workspace} rebuilt as saved")
     for workspace in report.reordered:
         print(f"  ok    tiles on ws {workspace} put back in their saved order")
+    for workspace, mode in report.modes.items():
+        print(f"  ok    ws {workspace} put in {MODE_NAMES.get(mode, mode)} mode, as saved")
     for workspace, tiled in report.other_layout.items():
         print(f"  note  ws {workspace} uses the {tiled} layout: its windows went to the nearest tiles, "
               f"but only dwindle layouts are rebuilt as saved")
@@ -209,6 +224,9 @@ def show_report(report: restore.Report, off: list[plan.WindowStep]) -> None:
         print("Check: every restored window is where it belongs.")
 
 
+MODE_NAMES = {"dwindle": "tiling"}  # what Omarchy's menu and bar call it
+
+
 def show_plan(result: plan.Plan, source: Source, close_others: bool = False) -> None:
     connector = {m.identity: m.name for m in source.monitors()}
     print(f"Restore plan for {result.session!r}"
@@ -218,9 +236,11 @@ def show_plan(result: plan.Plan, source: Source, close_others: bool = False) -> 
               f"and Omarchy moves them home when it's back")
 
     prep = [w for w in result.workspaces if w.action != "ok"]
-    if prep:
+    if prep or result.modes:
         print()
         print("Workspaces first")
+        for workspace, mode in result.modes.items():
+            print(f"  mode  ws {workspace} -> {MODE_NAMES.get(mode, mode)}")
         for w in prep:
             whose = f" (waiting for {w.owner})" if w.waiting else ""
             if w.action == "create":

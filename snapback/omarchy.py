@@ -16,10 +16,21 @@ Where they live under ~/.local/state/omarchy/:
 Migration 1793461630 moves the old pair to the new place and lets the old pair
 win when both exist, so read the old pair if it is there and the new one if not.
 Snapback's own fixtures always use the old names.
+
+Each workspace also has a layout mode, cycled with Super + L: dwindle (tiling),
+scrolling or floating. Omarchy keeps a workspace's own mode in
+workspace-layouts/<id>.lua as `o.workspace_mode({ workspace = "1", mode =
+"floating" })`, and the default for the rest in workspace-layouts/default.lua
+as `o.workspace_mode({ default = "scrolling" })`. A workspace without a file
+follows the default; without a default, Hyprland's general:layout. Hyprland
+itself only reports the tiled layout (floating isn't one). See
+default/hypr/workspace-modes.lua and omarchy-hyprland-workspace-layout-toggle.
 """
 
 from __future__ import annotations
 
+import re
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,6 +44,12 @@ LAYOUTS = (
     (BLOCKS_FILE, MERGED_FILE),
     ("monitors/workspaces", "monitors/workspaces-merged"),
 )
+
+MODES = ("dwindle", "scrolling", "floating")
+MODES_DIR = "workspace-layouts"
+MODES_TOOL = "omarchy-hyprland-workspace-layout-toggle"  # present where Omarchy has modes
+_MODE_RE = re.compile(r'\bmode\s*=\s*"([a-z]+)"')
+_DEFAULT_RE = re.compile(r'\bdefault\s*=\s*"([a-z]+)"')
 
 
 def state_dir() -> Path:
@@ -127,3 +144,54 @@ def installed_version() -> str | None:
         return None
     lines = result.stdout.strip().splitlines()
     return lines[0].strip() if result.returncode == 0 and lines else None
+
+
+@dataclass
+class WorkspaceModes:
+    """Omarchy's layout mode per workspace: dwindle, scrolling or floating."""
+
+    own: dict[str, str] = field(default_factory=dict)  # workspace -> its own mode
+    default: str | None = None                          # workspaces without one follow it
+    found: bool = False                                 # this Omarchy has modes at all
+    directory: Path | None = None
+
+    @classmethod
+    def load(cls, directory: Path | None = None) -> "WorkspaceModes":
+        directory = directory or state_dir() / MODES_DIR
+        own, default = {}, None
+        try:
+            paths = sorted(directory.glob("*.lua"))
+        except OSError:
+            paths = []
+        for path in paths:
+            text = _read(path) or ""
+            if path.stem == "default":
+                match = _DEFAULT_RE.search(text)
+                default = match.group(1) if match and match.group(1) in MODES else None
+            elif path.stem.isdecimal():
+                match = _MODE_RE.search(text)
+                if match and match.group(1) in MODES:
+                    own[path.stem] = match.group(1)
+        return cls(own, default, shutil.which(MODES_TOOL) is not None, directory)
+
+    def mode(self, workspace: str, tiled: str | None) -> str:
+        """A workspace's mode, as omarchy-hyprland-workspace-layout-current
+        reads it. `tiled` is Hyprland's layout for it: its tiledLayout, or
+        general:layout for a workspace that doesn't exist yet."""
+        found = self.own.get(workspace) or self.default or tiled
+        return found if found in MODES else "dwindle"
+
+    def remember(self, workspace: str, mode: str, general_layout: str | None) -> None:
+        """Keep `mode` for `workspace` across logins, as Super + L does: a
+        file of its own, or none when it is the default."""
+        if not workspace.isdecimal() or mode not in MODES or self.directory is None:
+            raise ValueError(f"bad workspace mode {workspace!r} {mode!r}")
+        path = self.directory / f"{workspace}.lua"
+        if mode == (self.default or general_layout or "dwindle"):
+            path.unlink(missing_ok=True)
+            self.own.pop(workspace, None)
+        else:
+            self.directory.mkdir(parents=True, exist_ok=True)
+            files.write_text(f'o.workspace_mode({{ workspace = "{workspace}", mode = "{mode}" }})\n',
+                             path, mode=0o644)
+            self.own[workspace] = mode

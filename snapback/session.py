@@ -48,6 +48,7 @@ class SavedWindow:
     skip: str | None
     problem: str | None
     tabs: dict | None = None   # a browser window's {"profile", "urls"}
+    workspace_mode: str | None = None  # its workspace's Omarchy mode: dwindle, scrolling, floating
 
     def to_dict(self) -> dict:
         w = self.window
@@ -69,16 +70,19 @@ class SavedWindow:
             "skip": self.skip,
             "problem": self.problem,
             "tabs": self.tabs,
+            "workspace_mode": self.workspace_mode,
         }
 
 
 def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
           versions: dict | None = None, now: datetime | None = None,
           marks: set[str] | frozenset = frozenset(),
-          tabs: Callable[[list[dict]], dict[str, dict]] = lambda clients: {}) -> dict:
+          tabs: Callable[[list[dict]], dict[str, dict]] = lambda clients: {},
+          modes: Callable[[str], str | None] = lambda workspace: None) -> dict:
     """The session for a snapshot. `procs` looks up a window's process (live
     /proc, or a stand-in in tests); `tabs` reads browser windows' tabs
-    (browsers.open_tabs, or a stand-in)."""
+    (browsers.open_tabs, or a stand-in); `modes` gives a workspace's Omarchy
+    layout mode, or None."""
     saved = []
     browser_tabs = tabs(source.snapshot["clients"])
     for window in capture(source):
@@ -90,6 +94,7 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
             result.skip,
             result.problem,
             window_tabs if window_tabs.get("urls") else None,
+            modes(window.workspace) if window.workspace.isdecimal() else None,
         ))
     saved.sort(key=lambda s: (s.window.focus < 0, s.window.focus))
 

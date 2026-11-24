@@ -157,6 +157,12 @@ class OnDisk(unittest.TestCase):
         self.assertEqual(tabs, {"0x1": {"profile": "Default", "urls": ["https://dashboard.lan/d/x"]},
                                 "0x2": {"profile": "Default", "urls": []}})
 
+    def test_the_users_config_folder_by_default(self):
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.home)}):
+            windows = browsers.read_windows(browsers.BROWSERS["chromium"])
+        self.assertEqual([w.urls for w in windows][0], ["https://dashboard.lan/d/x", "chrome://settings/"])
+
     def test_no_session_files_no_tabs(self):
         self.assertEqual(browsers.open_tabs([client("0x1", "x", 1, cls="google-chrome")], self.home), {})
 

@@ -202,10 +202,10 @@ def read_windows(browser: Browser, home: Path | None = None) -> list[SessionWind
     windows = []
     for profile in profiles(browser, home):
         try:
-            files = sorted((root / profile / "Sessions").glob("Session_*"), key=lambda p: p.stat().st_mtime)
-            if not files or files[-1].stat().st_size > MAX_FILE:
+            logs = sorted((root / profile / "Sessions").glob("Session_*"), key=lambda p: p.stat().st_mtime)
+            if not logs or logs[-1].stat().st_size > MAX_FILE:
                 continue
-            windows += parse(files[-1].read_bytes(), profile)
+            windows += parse(logs[-1].read_bytes(), profile)
         except OSError:
             continue
     return windows

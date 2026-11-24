@@ -77,7 +77,16 @@ omarchy plugin add https://github.com/XimmersiveX/omarchy-snapback --enable
 ```
 
 Snapback needs nothing beyond what Omarchy already has: it runs on `python3`.
-After updating, run `omarchy restart shell` so the bar picks up the new panel.
+
+## Update
+
+```bash
+omarchy plugin update io.github.ximmersivex.snapback
+```
+
+Then log out and back in. An update reaches the command line at once, but the panel and the
+autosave keep running the old version until they restart, and logging in restarts both (and brings
+the login hook up to date). To get the new panel without logging out, run `omarchy restart shell`.
 
 ## Remove
 

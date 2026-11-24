@@ -272,5 +272,23 @@ class Login(unittest.TestCase):
         self.assertEqual(record["errors"], ["a bug"])
 
 
+class Switch(unittest.TestCase):
+    def test_a_switch_during_another_restore_keeps_the_undo(self):
+        import snapback.__main__ as cli
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        sessions = Path(tmp.name) / "snapback/sessions"
+        sessions.mkdir(parents=True)
+        (sessions / "work.json").write_text('{"snapback": 1, "windows": []}')
+        (sessions / "before-switch.json").write_text("the real undo")
+        fixture = Path(__file__).parent / "fixtures" / "tv-on-scene"
+        with mock.patch.dict("os.environ", {"XDG_STATE_HOME": tmp.name, "XDG_RUNTIME_DIR": tmp.name}), \
+                mock.patch.object(cli.Source, "live", lambda: cli.Source.from_dir(fixture)), \
+                mock.patch.object(cli.browsers, "open_tabs", lambda clients: {}), \
+                restore.Lock():
+            self.assertEqual(cli.main(["restore", "work", "--close-others"]), 1)
+        self.assertEqual((sessions / "before-switch.json").read_text(), "the real undo")
+
+
 if __name__ == "__main__":
     unittest.main()

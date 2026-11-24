@@ -133,16 +133,17 @@ def cmd_restore(args: argparse.Namespace) -> int:
             show_plan(result, source, args.close_others)
         return 0
 
-    if args.close_others:
-        # Switching: keep the desk as it is now, so switching to UNDO_NAME
-        # undoes this. The session being restored was read above, so switching
-        # to UNDO_NAME itself swaps the two. An empty desk is kept too.
-        undo = session.build(source, resolver, apps.read_proc, versions_of(source), marks=marks,
-                             tabs=browsers.open_tabs)
-        session.write(undo, session.session_path(session.UNDO_NAME), force=True)
     trigger = "login" if args.at_login else "manual"
     with restore.Lock():
-        log = (lambda line: None) if args.json else (lambda line: print(f"  {line}"))
+        if args.close_others:
+            # Switching: keep the desk as it is now, so switching to UNDO_NAME
+            # undoes this. The session being restored was read above, so switching
+            # to UNDO_NAME itself swaps the two. An empty desk is kept too. Only
+            # once the lock is held: a half-restored desk is no undo.
+            undo = session.build(source, resolver, apps.read_proc, versions_of(source), marks=marks,
+                                 tabs=browsers.open_tabs)
+            session.write(undo, session.session_path(session.UNDO_NAME), force=True)
+        log =(lambda line: None) if args.json else (lambda line: print(f"  {line}"))
         try:
             report = restore.run(result, restore.LiveDesk(), timeout=args.timeout, log=log,
                                  close_others=args.close_others)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -86,8 +86,9 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
     layout modes, None where Omarchy has none."""
     saved = []
     browser_tabs = tabs(source.snapshot["clients"])
-    for window in capture(source):
-        result = resolver.resolve(window.app, procs(window.pid))
+    captured = capture(source)
+    for window in captured:
+        result = resolver.resolve(window.app, _proc_of(window, captured, procs))
         window_tabs = browser_tabs.get(window.address) or {}
         saved.append(SavedWindow(
             window,
@@ -131,6 +132,28 @@ def build(source: Source, resolver: Resolver, procs: Callable[[int], ProcInfo],
             for ws, mode in sorted(modes.known.items(), key=lambda kv: int(kv[0]))
             if (owner := source.workspaces.owner(int(ws)))]
     return session
+
+
+def _proc_of(window: CapturedWindow, windows: list[CapturedWindow],
+             procs: Callable[[int], ProcInfo]) -> ProcInfo:
+    """A window's process, with its own shell's folder when the terminal runs
+    several windows in one process (Ghostty): the shells, oldest first, belong
+    to the windows in the order Hyprland made them. With tabs or splits there
+    are more shells than windows, and the newest shell stands for all."""
+    info = procs(window.pid)
+    siblings = [w for w in windows if w.pid == window.pid] if window.pid > 0 else [window]
+    if len(siblings) < 2 or len(info.shell_cwds) != len(siblings):
+        return info
+    order = sorted(siblings, key=_made)
+    return replace(info, shell_cwd=info.shell_cwds[order.index(window)])
+
+
+def _made(window: CapturedWindow) -> tuple[int, str]:
+    """When Hyprland made a window: its stable id counts up."""
+    try:
+        return int(window.stable_id or "", 16), window.address
+    except ValueError:
+        return 1 << 62, window.address
 
 
 def view(source: Source, identity: str, workspace_id: int | None) -> dict | None:

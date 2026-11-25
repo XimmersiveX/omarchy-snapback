@@ -110,8 +110,9 @@ login. Your setups stay in `~/.local/state/snapback/` until you delete that fold
   They hold window titles and, for browsers, tab addresses; nothing leaves your computer.
 - **Only installed apps reopen.** Snapback opens apps through their desktop entries (what the app
   launcher uses) or a terminal in a folder. It never replays a saved command line.
-- **Terminals come back in their folder, at a fresh prompt.** Programs you started inside a
-  terminal, coding agents included, aren't restarted.
+- **Terminals come back in their folder, at a fresh prompt,** each as the terminal it was (foot,
+  Alacritty, Kitty and Ghostty are tested). Programs you started inside a terminal, coding agents
+  included, aren't restarted. A window with several tabs comes back as one, in its newest tab's folder.
 - **A browser that's closed** and set to continue where you left off brings back its own last
   session when it starts. Switching to a setup handles that: Snapback starts the browser out of
   sight, opens the setup's windows with their tabs, and closes the ones the browser brought back.

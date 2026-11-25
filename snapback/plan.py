@@ -171,7 +171,24 @@ def fullscreen_mode(saved: dict) -> int:
     return mode if mode in FULLSCREEN_NOTES and not isinstance(mode, bool) else 0
 
 
-def terminal_command(cwd: str | None) -> list[str]:
+GHOSTTY = "com.mitchellh.ghostty.desktop"
+
+
+def terminal_command(cwd: str | None, entry: DesktopEntry | None = None) -> list[str]:
+    """A terminal window in `cwd`: the saved terminal itself where its entry
+    says how to give it a folder (X-TerminalArgDir, from the same spec
+    xdg-terminal-exec follows), else the default terminal."""
+    args = exec_args(entry.exec) if entry else []
+    if entry and entry.id == GHOSTTY and args and cwd:
+        # Ghostty runs every window in one process and opens a new one in
+        # the focused window's folder, whatever the command line says; asking
+        # the running Ghostty (or starting it) for a window works.
+        return ["uwsm-app", "--", args[0], "+new-window", f"--working-directory={cwd}"]
+    if entry and entry.dir_arg and args:
+        if not cwd:
+            return ["uwsm-app", "--", *args]
+        folder = [entry.dir_arg + cwd] if entry.dir_arg.endswith("=") else [entry.dir_arg, cwd]
+        return ["uwsm-app", "--", *args, *folder]
     command = ["uwsm-app", "--", "xdg-terminal-exec"]
     return command + [f"--dir={cwd}"] if cwd else command
 
@@ -312,11 +329,11 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
                 step.action, step.reason = "problem", f"{entry.id} isn't a terminal"
                 continue
             cwd = launch.get("cwd")
-            if cwd and not is_dir(cwd):
+            if cwd and not (cwd.startswith("/") and is_dir(cwd)):
                 step.notes.append(f"{cwd} no longer exists; opens in your home folder")
                 cwd = None
-            step.command = terminal_command(cwd)
-            if default_terminal and default_terminal != launch["entry"]:
+            step.command = terminal_command(cwd, entry)
+            if step.command[2] == "xdg-terminal-exec" and default_terminal and default_terminal != launch["entry"]:
                 step.notes.append(f"opens in your default terminal ({default_terminal}), "
                                   f"not {launch['entry']}")
         else:

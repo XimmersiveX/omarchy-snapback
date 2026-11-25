@@ -182,6 +182,29 @@ class Proc(unittest.TestCase):
         self.assertIsNone(read_proc(100, self.make(shell_tty=0)).shell_cwd)
         self.assertIsNone(read_proc(100, self.make(shell_session=1)).shell_cwd)
 
+    def test_every_shell_of_a_terminal_running_several_windows(self):
+        # Ghostty runs all its windows in one process: one shell per window,
+        # oldest first by start time (pids can wrap around).
+        root = self.make()
+        (root / "100/task/100/children").write_text("150 205 120 ")
+        (root / "120").mkdir()
+        os.symlink("/home/me/dir120", root / "120/cwd")
+        tail = " ".join(["0"] * 12)  # up to field 22, the start time
+        (root / "120/stat").write_text(f"120 (bash) S 100 120 120 34818 0 0 {tail} 900 0\n")
+        (root / "205/stat").write_text(f"205 (bash) S 100 205 205 34817 0 0 {tail} 800 0\n")
+        info = read_proc(100, root)
+        self.assertEqual(info.shell_cwds, ("/home/me/dir205", "/home/me/dir120"))
+        self.assertEqual(info.shell_cwd, "/home/me/dir120")  # the newest shell
+
+    def test_a_helper_started_after_the_shell_is_skipped(self):
+        # Kitty starts kitten helpers after the shell; the newest child isn't it.
+        root = self.make()
+        (root / "100/task/100/children").write_text("205 300 ")
+        (root / "300").mkdir()
+        (root / "300/stat").write_text("300 (kitten) S 100 100 100 0 0 0\n")
+        os.symlink("/home/me/elsewhere", root / "300/cwd")
+        self.assertEqual(read_proc(100, root).shell_cwd, "/home/me/dir205")
+
     def test_gone_process(self):
         self.assertEqual(read_proc(4242, self.make()), ProcInfo())
         self.assertEqual(read_proc(0), ProcInfo())

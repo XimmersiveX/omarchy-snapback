@@ -882,6 +882,30 @@ class BrowserTabs(unittest.TestCase):
         self.assertNotIn(old, {c["address"] for c in fake.clients()})
 
 
+class Rounds(unittest.TestCase):
+    def test_an_apps_next_window_waits_for_its_last_one(self):
+        steps = [plan.WindowStep(app, app, "launch") for app in ("term", "term", "t3", "term", "files")]
+        rounds = restore._rounds(steps)
+        self.assertEqual([[s.app for s in r] for r in rounds], [["term", "t3", "files"], ["term"], ["term"]])
+
+    def test_a_restore_asks_for_an_apps_second_window_only_once_its_first_is_there(self):
+        session = saved_scene()
+        first = next(w for w in session["windows"] if w["app"] == "snapback-test-t1")
+        second = copy.deepcopy(first)
+        second["slot"] = 5
+        session["windows"].append(second)
+        source = empty(desk("tv-on-scene"))
+        p = plan.build(session, source, ENTRIES, default_terminal="foot.desktop", is_dir=lambda path: True)
+        fake = FakeDesk(source, OPENS)
+        counts = []
+        launch = fake.launch
+        fake.launch = lambda command: (counts.append(sum(c["class"] == "snapback-test-t1" for c in fake.clients()))
+                                       if "xdg-terminal-exec" in command else None, launch(command))
+        report = restore.run(p, fake, timeout=10)
+        self.assertEqual(counts, [0, 1])
+        self.assertEqual({r.outcome for r in report.results if r.step.app == "snapback-test-t1"}, {"placed"})
+
+
 class ClosedBrowser(unittest.TestCase):
     """Switching while the browser is closed and set to continue where it left off."""
 
@@ -987,7 +1011,9 @@ class OpenInPlace(unittest.TestCase):
         terminals = [s.workspace for s in p.windows if s.app == "snapback-test-t1"]
         self.assertEqual(terminals, ["22", "25"])
         aimed = [rules.get("snapback-test-t1") for rules, _ in fake.rule_calls]
-        self.assertEqual([ws for ws, _ in itertools.groupby(aimed)], ["22", "25", None])
+        # One window per round (see restore._rounds): aimed at 22, then at 25.
+        self.assertEqual([ws for ws, _ in itertools.groupby(aimed) if ws], ["22", "25"])
+        self.assertIsNone(aimed[-1])
         got = sorted(fake._by("address:" + r.address)["workspace"]["name"]
                      for r in report.results if r.step.app == "snapback-test-t1")
         self.assertEqual(got, ["22", "25"])

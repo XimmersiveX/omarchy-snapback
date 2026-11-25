@@ -568,3 +568,37 @@ class BrowserTabs(unittest.TestCase):
         by_app = {w["app"]: w for w in saved["windows"]}
         self.assertEqual(by_app["chromium"]["tabs"], {"profile": "Default", "urls": DASH})
         self.assertIsNone(by_app["com.t3tools.T3Code"]["tabs"])
+
+
+class Terminals(unittest.TestCase):
+    """A terminal comes back as itself, in its folder."""
+
+    def entry(self, entry_id, exec_, dir_arg):
+        return DesktopEntry(entry_id, entry_id, exec_, None, False, True, dir_arg=dir_arg)
+
+    def test_its_own_folder_argument(self):
+        alacritty = self.entry("Alacritty.desktop", "alacritty", "--working-directory=")
+        kitty = self.entry("kitty.desktop", "kitty", "--working-directory")
+        self.assertEqual(plan.terminal_command("/w", alacritty),
+                         ["uwsm-app", "--", "alacritty", "--working-directory=/w"])
+        self.assertEqual(plan.terminal_command("/w", kitty), ["uwsm-app", "--", "kitty", "--working-directory", "/w"])
+        self.assertEqual(plan.terminal_command(None, kitty), ["uwsm-app", "--", "kitty"])
+
+    def test_ghostty_is_asked_for_a_window(self):
+        ghostty = self.entry(plan.GHOSTTY, "ghostty --gtk-single-instance=true", "--working-directory=")
+        self.assertEqual(plan.terminal_command("/w", ghostty),
+                         ["uwsm-app", "--", "ghostty", "+new-window", "--working-directory=/w"])
+
+    def test_without_the_key_the_default_terminal(self):
+        bare = self.entry("weird.desktop", "weird", None)
+        self.assertEqual(plan.terminal_command("/w", bare), ["uwsm-app", "--", "xdg-terminal-exec", "--dir=/w"])
+
+    def test_a_folder_that_is_not_absolute_is_not_passed(self):
+        session = saved_scene()
+        t = next(w for w in session["windows"] if w["launch"] and w["launch"].get("how") == "terminal")
+        t["launch"]["cwd"] = "-e evil"
+        entries = dict(ENTRIES)
+        entries[t["launch"]["entry"]] = self.entry(t["launch"]["entry"], "foot", "--working-directory=")
+        result = plan.build(session, empty(desk("tv-on-scene")), entries, is_dir=lambda path: True)
+        step = next(s for s in result.windows if s.app == t["app"])
+        self.assertEqual(step.command, ["uwsm-app", "--", "foot"])

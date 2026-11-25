@@ -35,6 +35,7 @@ class DesktopEntry:
     hidden_from_menus: bool      # NoDisplay=true: launchable, not listed
     terminal_emulator: bool      # Categories includes TerminalEmulator
     terminal: bool = False       # Terminal=true: the app runs inside a terminal
+    dir_arg: str | None = None   # a terminal's X-TerminalArgDir: how it opens in a folder
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,8 @@ class ProcInfo:
 
     unit: str | None = None       # systemd unit from the cgroup path
     shell_cwd: str | None = None  # folder of a terminal's shell
+    shell_cwds: tuple[str, ...] = ()  # one per shell, oldest first: a terminal running
+                                      # several windows in one process (Ghostty) has several
 
 
 @dataclass(frozen=True)
@@ -130,6 +133,7 @@ def load_entries(dirs: list[Path]) -> dict[str, DesktopEntry]:
                 hidden_from_menus=values.get("NoDisplay") == "true",
                 terminal_emulator="TerminalEmulator" in categories,
                 terminal=values.get("Terminal") == "true",
+                dir_arg=values.get("X-TerminalArgDir") or None,
             )
     return entries
 
@@ -150,28 +154,32 @@ def read_proc(pid: int, root: Path = Path("/proc")) -> ProcInfo:
                 unit = line.rsplit("/", 1)[-1] or None
     except OSError:
         pass
-    return ProcInfo(unit=unit, shell_cwd=_shell_cwd(proc, root))
+    # The newest shell: not simply the newest child, as Omarchy's
+    # omarchy-cmd-terminal-cwd takes it, since Kitty starts helpers after it.
+    shells = sorted((s for s in (_shell(root, child) for child in _children(proc)) if s), key=lambda s: s[0])
+    cwds = tuple(cwd for _, cwd in shells)
+    return ProcInfo(unit=unit, shell_cwd=cwds[-1] if cwds else None, shell_cwds=cwds)
 
 
-def _shell_cwd(proc: Path, root: Path) -> str | None:
-    # The same rule as Omarchy's omarchy-cmd-terminal-cwd: the newest child,
-    # if it leads its own session on a terminal (a shell, not some helper).
-    newest = 0
+def _children(proc: Path) -> list[int]:
     try:
-        for children in proc.glob("task/*/children"):
-            for child in children.read_text().split():
-                newest = max(newest, int(child))
+        return [int(child) for children in proc.glob("task/*/children") for child in children.read_text().split()]
     except (OSError, ValueError):
-        return None
-    if not newest:
-        return None
+        return []
+
+
+def _shell(root: Path, pid: int) -> tuple[tuple[int, int], str] | None:
+    """((start time, pid), folder) of a terminal's shell. The same rule as
+    Omarchy's omarchy-cmd-terminal-cwd: it leads its own session on a
+    terminal (a shell, not some helper)."""
     try:
-        stat = (root / str(newest) / "stat").read_text()
+        stat = (root / str(pid) / "stat").read_text()
         fields = stat.rsplit(")", 1)[1].split()
         session, tty = int(fields[3]), int(fields[4])
-        if session != newest or tty == 0:
+        started = int(fields[19]) if len(fields) > 19 else 0  # field 22: start time
+        if session != pid or tty == 0:
             return None
-        return os.readlink(root / str(newest) / "cwd")
+        return (started, pid), os.readlink(root / str(pid) / "cwd")
     except (OSError, ValueError, IndexError):
         return None
 

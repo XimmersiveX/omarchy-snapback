@@ -342,11 +342,28 @@ def _restore(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float
             report.results.append(Result(step, "skipped", detail=step.reason))
     warmed = _warm(plan, desk, report, timeout, poll, log) if launches else []
     if launches:
-        _launch([s for s in launches if not s.tabs], desk, report, timeout, poll, log)
+        for batch in _rounds([s for s in launches if not s.tabs]):
+            _launch(batch, desk, report, timeout, poll, log)
         for step in launches:
             if step.tabs:
                 _launch([step], desk, report, timeout, poll, log)
     _close_warmed(warmed, plan, desk, report, poll, log)
+
+
+def _rounds(launches: list[WindowStep]) -> list[list[WindowStep]]:
+    """Launches in rounds: each app's first window, then each app's second,
+    and so on. Apps open side by side, but an app's next window is asked for
+    only once its last one is there: an app running all its windows in one
+    process can crash when asked for two at once (Ghostty did)."""
+    rounds: list[list[WindowStep]] = []
+    seen: dict[str, int] = {}
+    for step in launches:
+        n = seen.get(step.app, 0)
+        seen[step.app] = n + 1
+        if n == len(rounds):
+            rounds.append([])
+        rounds[n].append(step)
+    return rounds
 
 
 WARM_QUIET = 1.5  # seconds without a new window: the browser has brought back all it will

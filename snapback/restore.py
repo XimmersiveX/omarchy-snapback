@@ -36,7 +36,7 @@ Order matters:
        Windows open in rounds (see _rounds): a workspace's tiled windows in
        the order that builds their saved shape, and an app's windows one at
        a time, each caught before the next (a browser's tab windows can't be
-       told apart by title). When switching
+       told apart by title; its web app windows wait for it too). When switching
        finds such a browser closed and set to continue where it left off, it
        is started first with its windows opening on the hidden staging
        workspace, and those are closed once the tab windows are open: started
@@ -83,7 +83,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from . import files, hypr, layout, omarchy
+from . import browsers, files, hypr, layout, omarchy
 from .capture import app_of
 from .geometry import Rect, contains, logical_size
 from .plan import Plan, WindowStep
@@ -360,6 +360,9 @@ def _rounds(launches: list[WindowStep]) -> list[list[WindowStep]]:
     - An app's next window waits for its last one: windows of one app can't
       be told apart (a browser's tab windows), and an app running all its
       windows in one process can crash when asked for two at once (Ghostty).
+      A browser's web app windows (`chromium --app=`) count as the browser,
+      and wait for its windows: asked for while the browser is still
+      starting, a web app window can be lost.
 
     Everything else opens side by side.
     """
@@ -375,13 +378,17 @@ def _rounds(launches: list[WindowStep]) -> list[list[WindowStep]]:
             queues.append([step])
     for steps in tiled.values():
         steps[:] = _build_order(steps)
+    # Web app windows after the browser: started by its web app, a browser
+    # that continues where it left off would then not bring back its tabs.
+    queues.sort(key=lambda q: any(browsers.is_web_app(s.app) for s in q)
+                and not any(s.app in browsers.BROWSERS for s in q))
     rounds: list[list[WindowStep]] = []
     while any(queues):
         batch: list[WindowStep] = []
         apps: set[str] = set()
         for queue in queues:
-            if queue and queue[0].app not in apps:
-                apps.add(queue[0].app)
+            if queue and browsers.process_of(queue[0].app) not in apps:
+                apps.add(browsers.process_of(queue[0].app))
                 batch.append(queue.pop(0))
         rounds.append(batch)
     return rounds

@@ -4,7 +4,7 @@ import copy
 import itertools
 import unittest
 
-from snapback import hypr, plan, restore
+from snapback import browsers, hypr, plan, restore
 from tests.test_plan import ENTRIES, desk, empty, saved_scene
 
 
@@ -889,6 +889,22 @@ class Rounds(unittest.TestCase):
         steps = [plan.WindowStep(app, app, "launch") for app in ("term", "term", "t3", "term", "files")]
         rounds = restore._rounds(steps)
         self.assertEqual([[s.app for s in r] for r in rounds], [["term", "t3", "files"], ["term"], ["term"]])
+
+    def test_a_web_app_waits_for_its_browser_even_when_saved_first(self):
+        # At login Chromium and its Hotkeys web app were asked for at once; the
+        # web app's request was lost while Chromium started (2026-11-25).
+        hotkeys = "chrome-__home_me_.local_share_omarchy-hotkeys_hotkeys.html-Default"
+        steps = [plan.WindowStep(app, app, "launch") for app in (hotkeys, "chromium", "t3", "chromium")]
+        rounds = restore._rounds(steps)
+        self.assertEqual([[s.app for s in r] for r in rounds],
+                         [["chromium", "t3"], ["chromium"], [hotkeys]])
+
+    def test_web_app_classes(self):
+        for app in ("chrome-__home_me_.local_share_omarchy-hotkeys_hotkeys.html-Default",
+                    "chrome-music.youtube.com__-Profile_1", "brave-cinhimbnkkaeohfgghhklpknlkffjgod-Default"):
+            self.assertTrue(browsers.is_web_app(app), app)
+        for app in ("chromium", "chrome", "com.t3tools.T3Code", "chrome-thing"):
+            self.assertFalse(browsers.is_web_app(app), app)
 
     def test_a_restore_asks_for_an_apps_second_window_only_once_its_first_is_there(self):
         session = saved_scene()

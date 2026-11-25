@@ -281,6 +281,25 @@ def cold_restore(app: str, profile: str, home: Path | None = None) -> bool:
     return bool(browser) and not running(browser, home) and restores_itself(browser, profile, home)
 
 
+# A web app's own window (`chromium --app=URL`, an installed web app): the
+# browser's prefix, the app's URL or id, then the profile.
+WEB_APP_RE = re.compile(r"^(chrome|brave)-.+-(Default|Profile_\d+)\Z")
+
+
+def is_web_app(app: str) -> bool:
+    """Whether a window class is a Chromium-family browser's web app window."""
+    return bool(WEB_APP_RE.match(app))
+
+
+def process_of(app: str) -> str:
+    """Which process opens windows of this class. A browser runs its web apps
+    in its own process, so asking for one while the browser is still starting
+    can be lost: the new process hands it to the starting one, which drops it.
+    The Chromium family is taken as one, since a web app's class doesn't say
+    which browser it belongs to."""
+    return "chromium-family" if app in BROWSERS or is_web_app(app) else app
+
+
 def is_browser(app: str, entry_id: str) -> bool:
     """Whether a saved window is one of the browsers whose tabs Snapback
     reopens, by both its class and its desktop entry, so a setup file can't

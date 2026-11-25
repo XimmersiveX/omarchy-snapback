@@ -1,6 +1,6 @@
 """Record this machine's desktop as test data, and scrub it before it's committed.
 
-    python3 tools/fixture.py record NAME   # raw, private: fixtures-raw/NAME/ (never committed)
+    python3 tools/fixture.py record NAME   # raw, private: notes/fixtures-raw/NAME/ (never committed)
     python3 tools/fixture.py scrub NAME    # safe copy:    tests/fixtures/NAME/
 
 Scrubbing replaces window titles, the home folder and username, and monitor
@@ -24,7 +24,7 @@ sys.path.insert(0, str(ROOT))
 from snapback import hypr  # noqa: E402
 from snapback.omarchy import BLOCKS_FILE, MERGED_FILE, state_files  # noqa: E402
 
-RAW = ROOT / "fixtures-raw"
+RAW = ROOT / "notes" / "fixtures-raw"  # notes/ is git-ignored
 SAFE = ROOT / "tests" / "fixtures"
 TITLE_KEYS = {"title", "initialTitle", "lastwindowtitle", "xdgTag", "xdgDescription"}
 STATE_FILES = (BLOCKS_FILE, MERGED_FILE)

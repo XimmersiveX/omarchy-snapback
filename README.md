@@ -152,6 +152,7 @@ omarchy plugin validate .
 
 The panel's helpers are tested under `node` and its logic in an offscreen Quickshell; those tests
 are skipped where either isn't installed. `tools/preview.html` is the source of `preview.png`.
+Before opening an issue or a pull request, read [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Asked for in omacom/omarchy discussions #2123 and #472, and issues #8535 and #7085.
 

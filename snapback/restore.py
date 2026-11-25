@@ -33,8 +33,10 @@ Order matters:
        points at the next one's workspace, and a window that still opens
        somewhere else is moved as before. The rules go when the launches are
        done, and a timer inside Hyprland removes them if Snapback dies first.
-       Browser windows with saved tabs are opened one at a time, each caught
-       before the next, as their titles can't tell them apart. When switching
+       Windows open in rounds (see _rounds): a workspace's tiled windows in
+       the order that builds their saved shape, and an app's windows one at
+       a time, each caught before the next (a browser's tab windows can't be
+       told apart by title). When switching
        finds such a browser closed and set to continue where it left off, it
        is started first with its windows opening on the hidden staging
        workspace, and those are closed once the tab windows are open: started
@@ -342,28 +344,58 @@ def _restore(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float
             report.results.append(Result(step, "skipped", detail=step.reason))
     warmed = _warm(plan, desk, report, timeout, poll, log) if launches else []
     if launches:
-        for batch in _rounds([s for s in launches if not s.tabs]):
+        for batch in _rounds(launches):
             _launch(batch, desk, report, timeout, poll, log)
-        for step in launches:
-            if step.tabs:
-                _launch([step], desk, report, timeout, poll, log)
     _close_warmed(warmed, plan, desk, report, poll, log)
 
 
 def _rounds(launches: list[WindowStep]) -> list[list[WindowStep]]:
-    """Launches in rounds: each app's first window, then each app's second,
-    and so on. Apps open side by side, but an app's next window is asked for
-    only once its last one is there: an app running all its windows in one
-    process can crash when asked for two at once (Ghostty did)."""
-    rounds: list[list[WindowStep]] = []
-    seen: dict[str, int] = {}
+    """Launches in rounds, each round's windows asked for together and caught
+    before the next round. Two rules decide who waits:
+
+    - A workspace's tiled windows open one after another, in the order dwindle
+      builds their saved shape from (layout.build_steps): each new tile splits
+      the ones before it, so arriving in that order they mostly land where
+      they belong, and step 5 has nothing left to swap.
+    - An app's next window waits for its last one: windows of one app can't
+      be told apart (a browser's tab windows), and an app running all its
+      windows in one process can crash when asked for two at once (Ghostty).
+
+    Everything else opens side by side.
+    """
+    queues: list[list[WindowStep]] = []
+    tiled: dict[str, list[WindowStep]] = {}
     for step in launches:
-        n = seen.get(step.app, 0)
-        seen[step.app] = n + 1
-        if n == len(rounds):
-            rounds.append([])
-        rounds[n].append(step)
+        if step.tile_box and not step.floating and step.workspace:
+            if step.workspace not in tiled:
+                tiled[step.workspace] = []
+                queues.append(tiled[step.workspace])
+            tiled[step.workspace].append(step)
+        else:
+            queues.append([step])
+    for steps in tiled.values():
+        steps[:] = _build_order(steps)
+    rounds: list[list[WindowStep]] = []
+    while any(queues):
+        batch: list[WindowStep] = []
+        apps: set[str] = set()
+        for queue in queues:
+            if queue and queue[0].app not in apps:
+                apps.add(queue[0].app)
+                batch.append(queue.pop(0))
+        rounds.append(batch)
     return rounds
+
+
+def _build_order(steps: list[WindowStep]) -> list[WindowStep]:
+    """A workspace's tiled windows in the order that builds their saved shape:
+    the tree's starting window, then each one it adds; left to right and top
+    to bottom where no tree of splits makes the shape."""
+    tree = layout.split_tree({i: s.tile_box for i, s in enumerate(steps)}) if len(steps) > 1 else None
+    if tree is None:
+        return sorted(steps, key=lambda s: (s.tile_box[0], s.tile_box[1]))
+    start, added = layout.build_steps(tree)
+    return [steps[start]] + [steps[i] for _, _, i in added]
 
 
 WARM_QUIET = 1.5  # seconds without a new window: the browser has brought back all it will

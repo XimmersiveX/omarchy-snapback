@@ -232,6 +232,8 @@ class FakeDesk:
         new = client["address"]
         if tree is None:
             self.trees[ws] = new
+        elif new in _leaves(tree):
+            pass  # the first window of a new tree is already in it
         else:
             leaves = _leaves(tree)
             focused = self.focused if self.focused in leaves else None
@@ -906,6 +908,43 @@ class Rounds(unittest.TestCase):
         self.assertEqual({r.outcome for r in report.results if r.step.app == "snapback-test-t1"}, {"placed"})
 
 
+class BuildOrder(unittest.TestCase):
+    """A workspace's tiles open in the order that builds their saved shape."""
+
+    def session(self, order):
+        # The main ROG's ws 24: T3 Code on the left, Chromium on the right,
+        # saved in `order` (a setup lists windows by focus, not by place).
+        session = saved_scene()
+        t3 = next(w for w in session["windows"] if w["app"] == "com.t3tools.T3Code")
+        chromium = next(w for w in session["windows"] if w["app"] == "chromium")
+        for w, dx in ((t3, 12), (chromium, 1286)):
+            w.update(workspace="24", monitor=next(m["identity"] for m in session["monitors"]
+                                                   if m["connector"] == "DP-3"), slot=4, floating=False,
+                     placement={"dx": dx, "dy": 38, "w": 1262, "h": 1390, "monitor_w": 2560, "monitor_h": 1440})
+        session["windows"] = [{"chromium": chromium, "t3": t3}[k] for k in order]
+        return session
+
+    def test_left_opens_before_right_whatever_the_setup_order(self):
+        for order in (["chromium", "t3"], ["t3", "chromium"]):
+            with self.subTest(order=order):
+                source = empty(desk("tv-on-scene"))
+                p = plan.build(self.session(order), source, ENTRIES)
+                rounds = restore._rounds([s for s in p.windows if s.action == "launch"])
+                self.assertEqual([[s.app for s in r] for r in rounds], [["com.t3tools.T3Code"], ["chromium"]])
+
+    def test_arriving_in_order_leaves_nothing_to_swap(self):
+        source = empty(desk("tv-on-scene"))
+        p = plan.build(self.session(["chromium", "t3"]), source, ENTRIES)
+        report = restore.run(p, FakeDesk(source, OPENS), timeout=10)
+        self.assertEqual(report.count("placed"), 2)
+        self.assertEqual((report.reordered, report.rebuilt, report.errors), ([], [], []))
+
+    def test_without_a_tree_left_to_right(self):
+        steps = [plan.WindowStep(a, a, "launch", workspace="3", tile_box=box) for a, box in
+                 (("c", (0.5, 0.5, 1, 1)), ("a", (0, 0, 0.5, 1)), ("b", (0.5, 0, 1, 0.5)))]
+        self.assertEqual([s.app for s in restore._build_order(steps)], ["a", "b", "c"])
+
+
 class ClosedBrowser(unittest.TestCase):
     """Switching while the browser is closed and set to continue where it left off."""
 
@@ -985,16 +1024,19 @@ class OpenInPlace(unittest.TestCase):
 
     def test_each_launched_window_opens_on_its_own_workspace(self):
         p, fake, report = self.run_restore()
-        staging = next(i for i, (m, a) in enumerate(fake.calls) if a.get("workspace") == restore.STAGING)
-        placing = fake.calls[:staging]  # before the layout is rebuilt
+        staging = next((i for i, (m, a) in enumerate(fake.calls) if a.get("workspace") == restore.STAGING),
+                       len(fake.calls))
+        placing = fake.calls[:staging]  # before any rebuild of the layout
         for r in report.results:
             if r.step.action == "launch":
                 self.assertEqual((r.outcome, fake.opened_on[r.address]), ("placed", r.step.workspace), r.step.app)
                 self.assertNotIn(("window.move", {"window": f"address:{r.address}",
                                                   "workspace": r.step.workspace, "follow": False}), placing)
-        first, failsafe = fake.rule_calls[0]
-        self.assertEqual(first, {s.app: s.workspace for s in p.windows if s.action == "launch"})
-        self.assertGreater(failsafe, 10_000)  # outlives the launch timeout
+        aimed = {}
+        for rules, _ in fake.rule_calls:
+            aimed.update(rules)
+        self.assertEqual(aimed, {s.app: s.workspace for s in p.windows if s.action == "launch"})
+        self.assertGreater(fake.rule_calls[0][1], 10_000)  # outlives the launch timeout
 
     def test_the_rules_are_gone_afterwards(self):
         _, fake, _ = self.run_restore()

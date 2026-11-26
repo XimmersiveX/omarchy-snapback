@@ -2,7 +2,9 @@
 
 Save your desk as setups. Switch with one click.
 
-![Snapback: a Coding setup and a Video editing setup, switched from the Snapback panel](preview.png)
+<p align="center">
+  <img src=".github/assets/switch.gif" width="100%" alt="Two screens switching from a Coding setup (Zed, a terminal, Chromium, btop) to a Browsing setup of three Chromium windows, then back with Undo" />
+</p>
 
 Snapback is an Omarchy bar widget. Save the windows you have open as a **setup** (coding, video
 editing, browsing and music, a clean desk for gaming) and switch between them from the bar. Click
@@ -36,6 +38,8 @@ front of you first.
 
 ## Switching setups
 
+<img src=".github/assets/panel.png" width="320" align="right" alt="The Snapback panel: three setups, the save field, Undo, and the main screen" />
+
 - **Click a setup** to switch to it. Windows the setup doesn't have are asked to close, the same
   way their own close button does, so an app with unsaved work can still ask you about it.
   Snapback never kills a window; one that stays open is reported.
@@ -49,6 +53,8 @@ front of you first.
 
 Keys in the panel: arrows (or `j`/`k`) to move, Enter or Space to switch, `a` to add without
 closing, `x` or Delete to delete, `s` to name a new setup, Escape to close.
+
+<br clear="right" />
 
 ## One screen or three
 

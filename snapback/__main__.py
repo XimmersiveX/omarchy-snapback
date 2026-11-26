@@ -173,7 +173,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
             raise
     # Check: planned again now, everything should already be in place.
     now = Source.live()
-    after = plan_restore(saved, now, resolver, browsers.open_tabs(now.snapshot["clients"]))
+    after = plan_restore(saved, now, resolver, settled_tabs(browsers.open_tabs(now.snapshot["clients"]), report))
     off = [w for w in after.windows if w.action not in ("in-place", "skip", "problem")]
     record(path.stem, "manual", report, check=[w.to_dict() for w in off])
     if args.json:
@@ -183,6 +183,16 @@ def cmd_restore(args: argparse.Namespace) -> int:
     if args.notify:
         notify(*restore_summary(report, len(off)))
     return 1 if report.count("failed") or report.errors or off else 0
+
+
+def settled_tabs(tabs: dict[str, dict], report: restore.Report) -> dict[str, dict]:
+    """The open browser windows' tabs, for the check after a restore, without
+    the windows that restore just handled. A browser writes its tabs to disk
+    seconds late, so a window it has only just opened reads as having no tabs
+    or another window's, and the check would count it as out of place. Those
+    windows are matched by title and place instead."""
+    handled = {r.address for r in report.results if r.address}
+    return {address: t for address, t in tabs.items() if address not in handled}
 
 
 def show_report(report: restore.Report, off: list[plan.WindowStep]) -> None:

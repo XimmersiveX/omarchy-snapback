@@ -524,6 +524,17 @@ class BrowserTabs(unittest.TestCase):
         _, w = make(with_tabs(), source, tabs=tabs)
         self.assertEqual((w["chromium"].window, w["chromium"].matched_by), ("0xdash", "tabs"))
 
+    def test_the_check_after_a_restore_ignores_tabs_not_yet_written(self):
+        # Just opened by the restore, the window's tabs aren't on disk yet.
+        from snapback.__main__ import settled_tabs
+        from snapback.restore import Report, Result
+        stale = {CHROMIUM: {"profile": "Default", "urls": []}}
+        _, w = make(with_tabs(), desk("tv-on-scene"), tabs=stale)
+        report = Report([Result(w["chromium"], "placed", CHROMIUM)])
+        _, w = make(with_tabs(), desk("tv-on-scene"), tabs=settled_tabs(stale, report))
+        self.assertEqual((w["chromium"].action, w["chromium"].window), ("in-place", CHROMIUM))
+        self.assertEqual(settled_tabs(stale, Report()), stale)  # other windows keep theirs
+
     def test_unknown_tabs_reuse_an_open_window_as_before(self):
         _, w = make(with_tabs(), desk("tv-on-scene", instance="another"))
         self.assertEqual((w["chromium"].window, w["chromium"].matched_by), (CHROMIUM, "title"))

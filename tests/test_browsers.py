@@ -100,11 +100,15 @@ class Urls(unittest.TestCase):
 
     def test_new_window_command(self):
         command = browsers.new_window(["chromium"], "Default", ["https://a.example/", "chrome://newtab/"])
-        self.assertEqual(command, ["uwsm-app", "--", "chromium", "--new-window", "--", "https://a.example/"])
+        self.assertEqual(command, ["uwsm-app", "--", "chromium", "--profile-directory=Default",
+                                   "--new-window", "--", "https://a.example/"])
         command = browsers.new_window(["brave"], "Profile 2", ["https://a.example/"])
         self.assertIn("--profile-directory=Profile 2", command)
         self.assertEqual(command[-3:], ["--new-window", "--", "https://a.example/"])
         self.assertIsNone(browsers.new_window(["chromium"], "Default", ["chrome://newtab/"]))
+        self.assertEqual(browsers.start(["brave"], "Profile 2"), ["uwsm-app", "--", "brave", "--profile-directory=Profile 2"])
+        self.assertEqual(browsers.start(["chromium"], "--x"), ["uwsm-app", "--", "chromium"])
+        self.assertIsNone(browsers.start([], "Default"))
         self.assertNotIn("--profile-directory=--x", browsers.new_window(["chromium"], "--x", ["https://a.example/"]))
 
 
@@ -192,6 +196,17 @@ class OnDisk(unittest.TestCase):
         os.symlink(f"other-host-{os.getpid()}", lock)
         self.assertFalse(browsers.running(browser, self.home))
         self.assertTrue(browsers.cold_restore("chromium", "Default", self.home))
+
+    def test_a_closed_profile_of_a_running_browser_restores_itself_too(self):
+        browser = browsers.BROWSERS["chromium"]
+        os.symlink(f"{os.uname().nodename}-{os.getpid()}", self.root / "SingletonLock")
+        (self.root / "Local State").write_text('{"profile": {"last_active_profiles": ["Profile 1"]}}')
+        self.assertTrue(browsers.running(browser, self.home))
+        self.assertTrue(browsers.cold_restore("chromium", "Default", self.home))
+        (self.root / "Local State").write_text('{"profile": {"last_active_profiles": ["Default"]}}')
+        self.assertFalse(browsers.cold_restore("chromium", "Default", self.home))
+        (self.root / "Local State").unlink()  # no word on open profiles: taken as open
+        self.assertFalse(browsers.cold_restore("chromium", "Default", self.home))
 
     def test_cold_restore_only_when_set_to_continue(self):
         (self.root / "Default" / "Preferences").write_text('{"session": {"restore_on_startup": 5}}')

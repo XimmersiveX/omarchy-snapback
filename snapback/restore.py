@@ -414,32 +414,35 @@ def _warm(plan: Plan, desk: Desk, report: Report, timeout: float, poll: float, l
     session's tab windows then open with just their tabs. Returns the windows
     the browsers brought back by themselves."""
     warmed: list[str] = []
-    for app, command in plan.warm.items():
-        before = {c["address"] for c in desk.clients()}
+    for app, commands in plan.warm.items():
         try:
             desk.set_open_rules({app: STAGING}, int(timeout * 1000) + 10_000)
         except hypr.HyprError as exc:
             log(f"couldn't set the window rule that opens {app}'s own windows out of sight: {exc}")
-        try:
-            desk.launch(command)
-            log(f"started {' '.join(command)} before opening its windows")
-        except OSError as exc:
-            report.errors.append(f"couldn't start {app}: {exc}")
-            continue
-        seen: set[str] = set()
-        changed = desk.now()
-        deadline = changed + timeout
-        while desk.now() < deadline:
-            now = {c["address"] for c in desk.clients()
-                   if c["address"] not in before and app_of(c) == app and c.get("mapped", True)}
-            if now != seen:
-                seen, changed = now, desk.now()
-            elif seen and desk.now() - changed >= WARM_QUIET:
-                break
-            desk.sleep(poll)
-        if not seen:
-            report.errors.append(f"{app} didn't open a window within {timeout:g}s")
-        warmed += sorted(seen)
+        for command in commands:
+            before = {c["address"] for c in desk.clients()}
+            try:
+                desk.launch(command)
+                log(f"started {' '.join(command)} before opening its windows")
+            except OSError as exc:
+                report.errors.append(f"couldn't start {app}: {exc}")
+                continue
+            # Its web app windows come back too, under their own class.
+            seen: set[str] = set()
+            changed = desk.now()
+            deadline = changed + timeout
+            while desk.now() < deadline:
+                now = {c["address"] for c in desk.clients()
+                       if c["address"] not in before and c.get("mapped", True)
+                       and (app_of(c) == app or browsers.is_web_app(app_of(c)))}
+                if now != seen:
+                    seen, changed = now, desk.now()
+                elif seen and desk.now() - changed >= WARM_QUIET:
+                    break
+                desk.sleep(poll)
+            if not seen:
+                report.errors.append(f"{app} didn't open a window within {timeout:g}s")
+            warmed += sorted(seen)
     if plan.warm:
         try:
             desk.set_open_rules({})

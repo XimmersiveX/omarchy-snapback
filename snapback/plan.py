@@ -136,8 +136,8 @@ class Plan:
     elsewhere: bool = False           # the setup's main screen isn't here: screens matched by role
     park: bool = False                # park windows before moving them (Snapback's own folding)
     modes: dict[str, str] = field(default_factory=dict)  # workspace -> Omarchy mode to set first
-    warm: dict[str, list[str]] = field(default_factory=dict)  # closed browser -> command starting it,
-                                                              # before its tab windows (switching)
+    warm: dict[str, list[list[str]]] = field(default_factory=dict)  # browser -> commands starting its closed
+                                                                    # profiles, before its tab windows (switching)
 
     def count(self, action: str) -> int:
         return sum(1 for w in self.windows if w.action == action)
@@ -249,7 +249,7 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
                      [t[0] if t else None for t in targets], tabs)
 
     workspace_steps: dict[int, WorkspaceStep] = {}
-    warm: dict[str, list[str]] = {}
+    warm: dict[str, list[list[str]]] = {}
     missing: list[str] = []
     steps = []
     for index, saved in enumerate(session["windows"]):
@@ -342,18 +342,22 @@ def build(session: dict, source: Source, entries: dict[str, DesktopEntry],
             urls = [u for u in saved_tabs.get("urls") or [] if browsers.usable(u)]
             profile = str(saved_tabs.get("profile") or "Default")
             is_cold = bool(urls) and cold(saved["app"], profile)
+            started = (browsers.start(exec_args(entry.exec), profile)
+                       if browsers.is_browser(saved["app"], entry.id) else None) or step.command
             if is_cold and not switching:
-                step.notes.append("the browser isn't open and continues where it left off, "
-                                  "so it brings back its own tabs")
+                step.command = started
+                step.notes.append("the browser isn't open in this profile and continues where it "
+                                  "left off, so it brings back its own tabs")
             elif urls and browsers.is_browser(saved["app"], entry.id):
                 command = browsers.new_window(exec_args(entry.exec), profile, urls)
                 if command:
                     step.command, step.tabs = command, urls
                     step.notes.append(f"opens with its {len(urls)} tab" + ("s" if len(urls) > 1 else ""))
                     if is_cold:
-                        warm.setdefault(saved["app"], desktop_command(entry.id))
-                        step.notes.append("the browser isn't open: it is started first, out of sight, "
-                                          "and the windows it brings back by itself are closed")
+                        if started not in warm.setdefault(saved["app"], []):
+                            warm[saved["app"]].append(started)
+                        step.notes.append("the browser isn't open in this profile: it is started first, "
+                                          "out of sight, and the windows it brings back by itself are closed")
 
     taken = {s.window for s in steps if s.window}
     pinned_apps = {w.app for w in open_windows if w.pinned}

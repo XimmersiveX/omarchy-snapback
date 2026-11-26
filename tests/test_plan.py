@@ -504,7 +504,7 @@ class BrowserTabs(unittest.TestCase):
         result, w = make(with_tabs(), desk("tv-on-scene"), tabs={CHROMIUM: {"profile": "Default", "urls": []}})
         step = w["chromium"]
         self.assertEqual(step.action, "launch")
-        self.assertEqual(step.command, ["uwsm-app", "--", "x", "--new-window", "--", *DASH])
+        self.assertEqual(step.command, ["uwsm-app", "--", "x", "--profile-directory=Default", "--new-window", "--", *DASH])
         self.assertEqual(step.tabs, DASH)
         self.assertIn(CHROMIUM, {o["address"] for o in result.others})  # a switch closes it
 
@@ -543,7 +543,7 @@ class BrowserTabs(unittest.TestCase):
         asked = []
         cold = lambda app, profile: asked.append((app, profile)) or True  # noqa: E731
         _, w = make(with_tabs(profile="Profile 1"), empty(desk("tv-on-scene")), cold=cold)
-        self.assertEqual(w["chromium"].command, ["uwsm-app", "--", "chromium.desktop"])
+        self.assertEqual(w["chromium"].command, ["uwsm-app", "--", "x", "--profile-directory=Profile 1"])
         self.assertIsNone(w["chromium"].tabs)
         self.assertEqual(asked, [("chromium", "Profile 1")])
         self.assertTrue(any("its own tabs" in n for n in w["chromium"].notes))
@@ -551,9 +551,9 @@ class BrowserTabs(unittest.TestCase):
     def test_a_switch_starts_a_closed_browser_first_and_still_opens_the_tabs(self):
         cold = lambda app, profile: True  # noqa: E731
         result, w = make(with_tabs(), empty(desk("tv-on-scene")), cold=cold, switching=True)
-        self.assertEqual(w["chromium"].command, ["uwsm-app", "--", "x", "--new-window", "--", *DASH])
+        self.assertEqual(w["chromium"].command, ["uwsm-app", "--", "x", "--profile-directory=Default", "--new-window", "--", *DASH])
         self.assertEqual(w["chromium"].tabs, DASH)
-        self.assertEqual(result.warm, {"chromium": ["uwsm-app", "--", "chromium.desktop"]})
+        self.assertEqual(result.warm, {"chromium": [["uwsm-app", "--", "x", "--profile-directory=Default"]]})
         self.assertTrue(any("started first" in n for n in w["chromium"].notes))
 
     def test_a_running_browser_needs_no_start(self):

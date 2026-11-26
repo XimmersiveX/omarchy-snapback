@@ -292,11 +292,16 @@ def restores_itself(browser: Browser, profile: str, home: Path | None = None) ->
 
 
 def cold_restore(app: str, profile: str, home: Path | None = None) -> bool:
-    """Whether opening a window of `app` now would bring back the browser's own
-    last session instead: it isn't running, and is set to continue where it
-    left off."""
+    """Whether opening a window of `app` in `profile` now would bring back the
+    profile's own last session too: the browser isn't running, or runs only
+    other profiles, and the profile is set to continue where it left off."""
     browser = BROWSERS.get(app)
-    return bool(browser) and not running(browser, home) and restores_itself(browser, profile, home)
+    if not browser or not restores_itself(browser, profile, home):
+        return False
+    if not running(browser, home):
+        return True
+    active = active_profiles(browser, home)
+    return active is not None and profile not in active
 
 
 # A web app's own window (`chromium --app=URL`, an installed web app): the
@@ -325,12 +330,25 @@ def is_browser(app: str, entry_id: str) -> bool:
     return app in BROWSERS and entry_id == f"{app}.desktop"
 
 
+def start(exec_args: list[str], profile: str) -> list[str] | None:
+    """The command that starts the browser in a profile, which then brings
+    back that profile's own last windows, or None."""
+    if not exec_args:
+        return None
+    command = ["uwsm-app", "--", *exec_args]
+    if PROFILE_RE.match(profile):
+        command.append(f"--profile-directory={profile}")
+    return command
+
+
 def new_window(exec_args: list[str], profile: str, urls: list[str]) -> list[str] | None:
     """The command that opens one window with these tabs, or None."""
     urls = [u for u in urls if usable(u)]
     if not exec_args or not urls:
         return None
     command = ["uwsm-app", "--", *exec_args]
-    if profile != "Default" and PROFILE_RE.match(profile):
+    # Default too: a browser already running another profile would otherwise
+    # open the window in that one.
+    if PROFILE_RE.match(profile):
         command.append(f"--profile-directory={profile}")
     return command + ["--new-window", "--", *urls]

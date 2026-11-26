@@ -971,7 +971,7 @@ class ClosedBrowser(unittest.TestCase):
         source = empty(desk("tv-on-scene"))
         p = plan.build(session, source, ENTRIES, cold=lambda app, profile: True, switching=True)
         fake = FakeDesk(source, opens or {
-            "chromium.desktop": [("chromium", "YouTube - Chromium"), ("chromium", "New Tab - Chromium")],
+            "--profile-directory=Default": [("chromium", "YouTube - Chromium"), ("chromium", "New Tab - Chromium")],
             "https://a.example/": [("chromium", "A")]})
         if stubborn:
             real = fake.dispatch
@@ -987,7 +987,7 @@ class ClosedBrowser(unittest.TestCase):
 
     def test_the_browser_is_started_first_out_of_sight_and_its_own_windows_closed(self):
         _, fake, report = self.run_switch()
-        self.assertEqual(fake.launched[0], ["uwsm-app", "--", "chromium.desktop"])
+        self.assertEqual(fake.launched[0], ["uwsm-app", "--", "x", "--profile-directory=Default"])
         self.assertEqual(fake.launched[1][-1], "https://a.example/")
         own = [a for a, ws in fake.opened_on.items() if ws == restore.STAGING]
         self.assertEqual(len(own), 2)
@@ -1021,6 +1021,14 @@ class ClosedBrowser(unittest.TestCase):
         p, fake, report = self.run_switch(stubborn=True)
         self.assertFalse(any(c["workspace"]["name"] == restore.STAGING for c in fake.clients()))
         self.assertEqual(len(report.kept), 2)
+
+    def test_web_app_windows_the_profile_brings_back_are_closed_too(self):
+        _, fake, report = self.run_switch(opens={
+            "--profile-directory=Default": [("chromium", "YouTube - Chromium"),
+                                            ("chrome-hotkeys.example__-Default", "Hotkeys")],
+            "https://a.example/": [("chromium", "A")]})
+        self.assertEqual([c["title"] for c in fake.clients()], ["A"])
+        self.assertEqual(report.errors, [])
 
     def test_a_browser_that_never_opens_is_an_error_and_the_switch_goes_on(self):
         _, fake, report = self.run_switch(opens={"https://a.example/": [("chromium", "A")]})

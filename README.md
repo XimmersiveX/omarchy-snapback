@@ -81,7 +81,19 @@ switch off removes it. Nothing is written until you turn it on.
 omarchy plugin add https://github.com/XimmersiveX/omarchy-snapback --enable
 ```
 
-Snapback needs nothing beyond what Omarchy already has: it runs on `python3`.
+Requirements:
+
+- Omarchy 4 with its Quickshell bar (tested on Omarchy 4.5 and Hyprland 0.56)
+- Nothing else to install: Snapback runs on the `python3` Omarchy already has
+
+### First steps
+
+1. Open your windows the way you like them.
+2. Click the Snapback icon on the right of the bar (a window with a restore arrow).
+3. Type a name in **Save open windows as a setup…** and press Enter. Save a second setup the same
+   way after changing your desk.
+4. Click a setup to switch to it. **Before switch** takes you back.
+5. Optional: turn on **Restore my windows at login**.
 
 ## Update
 
@@ -89,9 +101,15 @@ Snapback needs nothing beyond what Omarchy already has: it runs on `python3`.
 omarchy plugin update io.github.ximmersivex.snapback
 ```
 
-Then log out and back in. An update reaches the command line at once, but the panel and the
-autosave keep running the old version until they restart, and logging in restarts both (and brings
-the login hook up to date). To get the new panel without logging out, run `omarchy restart shell`.
+Review the changes when asked (`--yes` skips the question), then load the new panel:
+
+```bash
+omarchy restart shell
+```
+
+The autosave behind **Restore my windows at login** keeps the old version until your next login,
+which also brings the login hook up to date. What changed in each version is in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Remove
 
@@ -154,7 +172,11 @@ The panel's helpers are tested under `node` and its logic in an offscreen Quicks
 are skipped where either isn't installed. `tools/preview.html` is the source of `preview.png`.
 Before opening an issue or a pull request, read [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Asked for in omacom/omarchy discussions #2123 and #472, and issues #8535 and #7085.
+Asked for in Omarchy's discussions
+([Save/Restore hyprland sessions](https://github.com/omacom/omarchy/discussions/2123),
+[start with a save option for opened apps](https://github.com/omacom/omarchy/discussions/472)) and
+issues ([window layout snapshots](https://github.com/omacom/omarchy/issues/8535),
+[multi-window session not fully restored](https://github.com/omacom/omarchy/issues/7085)).
 
 ## License
 

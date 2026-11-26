@@ -196,11 +196,29 @@ def profiles(browser: Browser, home: Path | None = None) -> list[str]:
         return []
 
 
+def active_profiles(browser: Browser, home: Path | None = None) -> set[str] | None:
+    """The profiles the browser has windows open in, from its Local State, or
+    None when it doesn't say."""
+    try:
+        state = json.loads(((home or files.config_home()) / browser.folder / "Local State").read_text())
+        active = state["profile"]["last_active_profiles"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if not isinstance(active, list) or not active:
+        return None
+    return {p for p in active if isinstance(p, str)}
+
+
 def read_windows(browser: Browser, home: Path | None = None) -> list[SessionWindow]:
-    """The open windows of every profile, from each one's newest session file."""
+    """The open windows of every profile, from each one's newest session file.
+    A profile whose windows were all closed keeps its last ones in that file,
+    so only the profiles the browser says are open are read."""
     root = (home or files.config_home()) / browser.folder
+    active = active_profiles(browser, home)
     windows = []
     for profile in profiles(browser, home):
+        if active is not None and profile not in active:
+            continue
         try:
             logs = sorted((root / profile / "Sessions").glob("Session_*"), key=lambda p: p.stat().st_mtime)
             if not logs or logs[-1].stat().st_size > MAX_FILE:

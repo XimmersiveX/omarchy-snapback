@@ -163,6 +163,21 @@ class OnDisk(unittest.TestCase):
             windows = browsers.read_windows(browsers.BROWSERS["chromium"])
         self.assertEqual([w.urls for w in windows][0], ["https://dashboard.lan/d/x", "chrome://settings/"])
 
+    def test_a_profile_with_no_open_windows_lends_none_its_tabs(self):
+        # Default's windows were closed (its file still lists them); one window
+        # of Profile 1 is open, and Chromium hasn't written its title yet.
+        other = self.root / "Profile 1" / "Sessions"
+        other.mkdir(parents=True)
+        (other / "Session_3").write_bytes(window_file({30: [(4, "https://wiki.example/", "")]}))
+        (self.root / "Local State").write_text('{"profile": {"last_active_profiles": ["Profile 1"]}}')
+        tabs = browsers.open_tabs([client("0x7", "Wiki - Chromium", 7)], self.home)
+        self.assertEqual(tabs, {"0x7": {"profile": "Profile 1", "urls": ["https://wiki.example/"]}})
+
+    def test_no_word_on_open_profiles_reads_them_all(self):
+        (self.root / "Local State").write_text('{"profile": {}}')
+        self.assertEqual(browsers.active_profiles(browsers.BROWSERS["chromium"], self.home), None)
+        self.assertEqual(len(browsers.read_windows(browsers.BROWSERS["chromium"], self.home)), 2)
+
     def test_no_session_files_no_tabs(self):
         self.assertEqual(browsers.open_tabs([client("0x1", "x", 1, cls="google-chrome")], self.home), {})
 
